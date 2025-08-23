@@ -3,16 +3,6 @@ from __future__ import annotations
 
 # ===== UTF-8 stdio (mantém emojis no Windows/Scheduler) =====
 import sys
-def _force_utf8_stdio():
-    try:
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        if hasattr(sys.stderr, "reconfigure"):
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-_force_utf8_stdio()
-
 import os
 import traceback
 from typing import List, Tuple, Dict, Iterable
@@ -25,6 +15,16 @@ from core.main import run_client
 from core.alerts.email import send_email
 from core.alerts.telegram import send_telegram_text
 
+
+def _force_utf8_stdio():
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+_force_utf8_stdio()
 
 # ========= Util: resolução de caminhos e carga de .env =========
 def _root_dir() -> Path:

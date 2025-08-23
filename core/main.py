@@ -23,16 +23,10 @@ from core.adapters.db_adapter import DatabaseSourceAdapter
 # ====== UTIL .ENV ========
 # =========================
 def _load_env_file(env_path: Path, *, required: bool = False, override: bool = True) -> None:
-    """
-    Carrega variáveis de um arquivo .env para os.environ.
-    - Se required=True e o arquivo não existir -> levanta erro.
-    - Usa python-dotenv se disponível; caso contrário, faz um parse simples.
-    """
     if not env_path.exists():
         if required:
             raise FileNotFoundError(f".env não encontrado: {env_path}")
         return
-
     try:
         from dotenv import load_dotenv  # type: ignore
         load_dotenv(env_path, override=override)
@@ -46,14 +40,7 @@ def _load_env_file(env_path: Path, *, required: bool = False, override: bool = T
 
 
 def load_project_and_tenant_env(client_id: Optional[str]) -> None:
-    """
-    Carrega primeiro o .env GLOBAL (raiz do projeto), depois o .env do CLIENTE.
-    O do cliente sobrescreve o global quando houver conflito.
-    """
-    # 1) .env global (opcional)
     _load_env_file(Path(".env"), required=False, override=True)
-
-    # 2) .env do cliente (se fornecido)
     if client_id:
         tenant_env = Path("tenants") / client_id / "config" / ".env"
         _load_env_file(tenant_env, required=True, override=True)
@@ -65,7 +52,6 @@ def load_project_and_tenant_env(client_id: Optional[str]) -> None:
 _VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 def expand_placeholders(value: Any) -> Any:
-    """Expande ${VAR} com valores de os.environ. Se não achar, mantém literal."""
     if not isinstance(value, str):
         return value
     def repl(m: re.Match) -> str:
@@ -80,11 +66,6 @@ def expand_placeholders(value: Any) -> Any:
 _engine_cache: Dict[str, Engine] = {}
 
 def make_engine_for_db(db_name: str) -> Engine:
-    """
-    Cria (ou reaproveita) um Engine para o banco informado.
-    - Requer DB_URL no .env, com um {db} para inject do nome do banco.
-      Ex.: DB_URL="mysql+pymysql://user:pass@host:3306/{db}?charset=utf8mb4"
-    """
     if db_name in _engine_cache:
         return _engine_cache[db_name]
 
@@ -96,7 +77,6 @@ def make_engine_for_db(db_name: str) -> Engine:
 
     url = tmpl.format(db=db_name)
 
-    # Pool/echo
     def _get_int(name: str, default: Optional[int] = None) -> Optional[int]:
         v = os.getenv(name)
         try:
@@ -116,15 +96,12 @@ def make_engine_for_db(db_name: str) -> Engine:
     pt = _get_int("DB_POOL_TIMEOUT")
     if pt is not None: pool_kwargs["pool_timeout"] = pt
 
-    # connect_args a partir de DB_CONNECT_*
     connect_args: Dict[str, Any] = {}
     for k, v in os.environ.items():
         if k.startswith("DB_CONNECT_"):
             kk = k[len("DB_CONNECT_"):].lower()
-            vv = _auto(v)
-            connect_args[kk] = vv
+            connect_args[kk] = _auto(v)
 
-    # mysql: garantir local_infile=1, se não desabilitado
     if url.startswith("mysql"):
         connect_args.setdefault("local_infile", True)
 
@@ -166,18 +143,15 @@ def build_adapter(job) -> object:
 
     if jtype == "api":
         endpoint = expand_placeholders(job.endpoint)
-
         adapter = APISourceAdapter(
             endpoint,
-            token_env=job.auth_env,
+            token_env=job.auth_env,  # legado
             paging=getattr(job, "paging", None) or None,
             timeout=getattr(job, "timeout", None) or int(os.getenv("API_TIMEOUT", "30")),
+            auth=getattr(job, "auth", None),       # <<< NOVO
         )
-
-        # PUSH-DOWN INCREMENTAL: se job trouxer date_field/from_date, configuramos no adapter
         if getattr(job, "date_field", None) and getattr(job, "from_date", None):
             adapter.configure_incremental(field=str(job.date_field), from_date=str(job.from_date))
-
         return adapter
 
     if jtype == "db":
@@ -192,10 +166,6 @@ def build_adapter(job) -> object:
 # ===== INCREMENTAL =======
 # =========================
 def apply_incremental(df: pd.DataFrame, date_field: str | None, from_date: str | None) -> pd.DataFrame:
-    """
-    Filtro em memória (fallback). Mantido para fontes que NÃO suportam filtro push-down.
-    Para API, o push-down já foi aplicado em build_adapter via configure_incremental().
-    """
     if not date_field or not from_date or date_field not in df.columns:
         return df
     col = pd.to_datetime(df[date_field], errors="coerce", utc=False)
@@ -217,7 +187,6 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
     df: pd.DataFrame = adapter.extract()
     print(f"✅ [{job.name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
 
-    # ---------- mapping ----------
     spec = mappings.get(getattr(job, "map_id", None))
     eff_columns = getattr(job, "columns", None) or (list(spec.src_to_tgt.keys()) if spec else None)
     eff_rename  = getattr(job, "rename_map", None) or (spec.src_to_tgt if spec else None)
@@ -225,13 +194,11 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
     eff_keys    = getattr(job, "key_cols", None)  or (spec.key_cols if spec else None)
     eff_cmp     = getattr(job, "compare_cols", None) or (spec.compare_cols if spec else None)
 
-    # aceitar string
     if isinstance(eff_keys, (str, bytes)):
         eff_keys = [eff_keys]
     if eff_cmp is not None and isinstance(eff_cmp, (str, bytes)):
         eff_cmp = [eff_cmp]
 
-    # ---------- preparo ----------
     print(f"🔧 [{job.name}] Preparando dataframe (rename/required/trim)...")
     t1 = time.perf_counter()
     df = dm.prepare_dataframe(
@@ -244,7 +211,6 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
     )
     print(f"✅ [{job.name}] Dataframe preparado: {len(df)} linhas em {time.perf_counter()-t1:.2f}s")
 
-    # ---------- incremental fallback (se necessário) ----------
     if getattr(job, "date_field", None) and getattr(job, "from_date", None):
         print(f"⏱️  [{job.name}] Aplicando filtro incremental em memória (fallback)...")
         t2 = time.perf_counter()
@@ -252,7 +218,6 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
         df = apply_incremental(df, job.date_field, job.from_date)
         print(f"✅ [{job.name}] Incremental fallback: {before}->{len(df)} em {time.perf_counter()-t2:.2f}s")
 
-    # ---------- normalização monetária ----------
     print(f"💰 [{job.name}] Normalizando colunas monetárias (heurística)...")
     t3 = time.perf_counter()
     def _normalize_money_col(s: pd.Series) -> pd.Series:
@@ -262,17 +227,15 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
             s.astype(str)
              .str.replace(r"\s", "", regex=True)
              .str.replace("R$", "", regex=False)
-             .str.replace(".", "", regex=False)   # milhares
-             .str.replace(",", ".", regex=False)  # decimal
+             .str.replace(".", "", regex=False)
+             .str.replace(",", ".", regex=False)
         )
         return pd.to_numeric(txt, errors="coerce").round(2)
-
     money_candidates = [c for c in df.columns if any(tok in c.lower() for tok in ("valor", "preco", "preço", "custo", "total"))]
     for c in money_candidates:
         df[c] = _normalize_money_col(df[c])
     print(f"✅ [{job.name}] Normalização monetária concluída em {time.perf_counter()-t3:.2f}s")
 
-    # ---------- dedup ----------
     if eff_keys:
         print(f"🧹 [{job.name}] Removendo duplicatas por chave {eff_keys} ...")
         t4 = time.perf_counter()
@@ -283,7 +246,6 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
         df = df.drop_duplicates(subset=eff_keys, keep="last").reset_index(drop=True)
         print(f"✅ [{job.name}] Dedup: {before}->{len(df)} em {time.perf_counter()-t4:.2f}s")
 
-    # ---------- carga ----------
     print(f"🚚 [{job.name}] Carregando no destino '{job.table}' ...")
     t5 = time.perf_counter()
     try:
@@ -292,7 +254,7 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
                 df, job.table,
                 key_cols=eff_keys,
                 compare_cols=eff_cmp,
-                schema=getattr(job, "schema", None),   # opcional
+                schema=getattr(job, "schema", None),
                 job_name=job.name,
             )
         else:
@@ -320,14 +282,8 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
 # ===== RUN CLIENT ========
 # =========================
 def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List[Tuple[str, int]]]:
-    """
-    Executa TODOS os jobs do cliente em PARALELO e retorna total e lista de resultados.
-    .env global (./.env) é carregado, depois o .env do cliente em tenants/<client_id>/config/.env.
-    """
-    # carrega .env global + do cliente (cliente sobrescreve)
     load_project_and_tenant_env(client_id)
 
-    # importa jobs e mappings do cliente
     jobs_mod = importlib.import_module(f"tenants.{client_id}.pipelines.jobs")
     mappings_mod = importlib.import_module(f"tenants.{client_id}.pipelines.mappings")
 
@@ -335,27 +291,23 @@ def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List[T
     PROCS = getattr(jobs_mod, "PROCS", [])
     MAPPINGS = getattr(mappings_mod, "MAPPINGS")
 
-    # ingest cfg do .env
     ingest_cfg = {
-        "schema":    os.getenv("INGEST_SCHEMA") or None,  # pode estar vazio
+        "schema":    os.getenv("INGEST_SCHEMA") or None,
         "if_exists": os.getenv("INGEST_IF_EXISTS", "append"),
         "chunksize": int(os.getenv("INGEST_CHUNKSIZE", "2000")),
         "method":    os.getenv("INGEST_METHOD", "multi"),
         "collation": os.getenv("MYSQL_COLLATION") or "utf8mb4_unicode_ci",
     }
 
-    # definir nº de workers
     workers_env = int(os.getenv("WORKERS_PER_CLIENT", workers_per_client))
     workers = min(max(1, workers_env), len(JOBS))
 
-    # cache de DataMat por banco
     dm_cache: Dict[str, DataMat] = {}
 
     def get_dm_for_job(job) -> DataMat:
         db_name_raw = getattr(job, "db_name", None)
         if not db_name_raw:
             raise RuntimeError(f"Job '{job.name}' sem db_name definido.")
-        # resolve via .env do cliente (ex.: DB_STG_NAME=HASHTAG_STG)
         resolved = os.getenv(db_name_raw, db_name_raw)
         if resolved not in dm_cache:
             engine = make_engine_for_db(resolved)
@@ -377,7 +329,6 @@ def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List[T
             resultados.append((name, n))
             total += n
 
-    # Executar PROCS (se houver)
     for proc in PROCS:
         if isinstance(proc, dict):
             dbn = os.getenv(proc.get("db_name", ""), "")
@@ -394,14 +345,9 @@ def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List[T
     return total, resultados
 
 
-# =========================
-# ========= MAIN ==========
-# =========================
 if __name__ == "__main__":
     import sys
-    # carrega apenas o .env global para descobrir CLIENT_ID (se definido lá)
     load_project_and_tenant_env(client_id=None)
-
     client = os.getenv("CLIENT_ID") or (sys.argv[1] if len(sys.argv) > 1 else None)
     if not client:
         raise SystemExit("Informe o CLIENT_ID (env global) ou como argumento. Ex.: CLIENT_ID=HASHTAG python -m core.main")
