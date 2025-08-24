@@ -142,36 +142,34 @@ def build_adapter(job) -> object:
         return FileSourceAdapter(file_path, sheet=job.sheet, header=job.header)
 
     if jtype == "api":
-        endpoint = expand_placeholders(job.endpoint)
+        endpoint_path = expand_placeholders(job.endpoint)
+        
+        if endpoint_path.lower().startswith(("http://", "https://")):
+            final_endpoint = endpoint_path
+        else:
+            base_url = os.getenv("API_BASE_URL", "").rstrip('/')
+            if not base_url:
+                raise RuntimeError(
+                    f"Job '{job.name}' usa endpoint relativo '{endpoint_path}', "
+                    "mas API_BASE_URL não está definida no .env."
+                )
+            final_endpoint = f"{base_url}/{endpoint_path.lstrip('/')}"
+            
         adapter = APISourceAdapter(
-            endpoint,
-            token_env=job.auth_env,  # legado
+            final_endpoint,
             paging=getattr(job, "paging", None) or None,
             timeout=getattr(job, "timeout", None) or int(os.getenv("API_TIMEOUT", "30")),
-            auth=getattr(job, "auth", None),       # <<< NOVO
+            auth=getattr(job, "auth", None),
+            params=getattr(job, "params", None)
         )
-        if getattr(job, "date_field", None) and getattr(job, "from_date", None):
-            adapter.configure_incremental(field=str(job.date_field), from_date=str(job.from_date))
         return adapter
 
     if jtype == "db":
         source_url = expand_placeholders(job.source_url)
         query = expand_placeholders(job.query)
-        return DatabaseSourceAdapter(source_url, query, params=job.params)
+        return DatabaseSourceAdapter(source_url, query, params=getattr(job, "params", None))
 
     raise ValueError(f"Tipo de job desconhecido: {jtype}")
-
-
-# =========================
-# ===== INCREMENTAL =======
-# =========================
-def apply_incremental(df: pd.DataFrame, date_field: str | None, from_date: str | None) -> pd.DataFrame:
-    if not date_field or not from_date or date_field not in df.columns:
-        return df
-    col = pd.to_datetime(df[date_field], errors="coerce", utc=False)
-    cut = pd.to_datetime(from_date, utc=False)
-    mask = col.notna() & (col >= cut)
-    return df.loc[mask].reset_index(drop=True)
 
 
 # =========================
@@ -210,13 +208,6 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
         strip_strings=True,
     )
     print(f"✅ [{job.name}] Dataframe preparado: {len(df)} linhas em {time.perf_counter()-t1:.2f}s")
-
-    if getattr(job, "date_field", None) and getattr(job, "from_date", None):
-        print(f"⏱️  [{job.name}] Aplicando filtro incremental em memória (fallback)...")
-        t2 = time.perf_counter()
-        before = len(df)
-        df = apply_incremental(df, job.date_field, job.from_date)
-        print(f"✅ [{job.name}] Incremental fallback: {before}->{len(df)} em {time.perf_counter()-t2:.2f}s")
 
     print(f"💰 [{job.name}] Normalizando colunas monetárias (heurística)...")
     t3 = time.perf_counter()

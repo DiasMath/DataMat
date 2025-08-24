@@ -13,59 +13,34 @@ except Exception:
 
 
 class APISourceAdapter:
-    """
-    Adapter HTTP genérico (API → DataFrame).
-
-    Autenticação por job (self.auth_cfg):
-      - {"kind": "none"}
-      - {"kind": "bearer_env", "env": "API_TOKEN"}
-      - {"kind": "header_token", "env": "API_KEY", "header": "X-Api-Key"}
-      - {"kind": "query_token", "env": "API_KEY", "param": "apikey"}
-      - {"kind": "oauth2_generic",
-         "token_cache": ".secrets/oauth_tokens.json",
-         "token_url_env": "OAUTH_TOKEN_URL",
-         "client_id_env": "OAUTH_CLIENT_ID",
-         "client_secret_env": "OAUTH_CLIENT_SECRET",
-         "redirect_uri_env": "OAUTH_REDIRECT_URI",
-         "scope_env": "OAUTH_SCOPE",
-         "auth_code_env": "OAUTH_AUTH_CODE",
-         "use_basic_auth": True}
-
-    Paginação:
-      - page: {"mode":"page","page_param":"page","size_param":"page_size","size":200,"start_page":1}
-      - cursor: {"mode":"cursor","cursor_path":"next","cursor_param":"cursor"}
-    """
+    """Adapter HTTP genérico (API → DataFrame)."""
 
     def __init__(
         self,
         endpoint: str,
-        token_env: Optional[str] = None,          # legado
         paging: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
-        auth: Optional[Dict[str, Any]] = None,    # <<< novo
+        auth: Optional[Dict[str, Any]] = None,
         default_headers: Optional[Dict[str, str]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
-        self.token_env = token_env
         self.paging = paging or {}
         self.timeout = timeout or int(os.getenv("API_TIMEOUT", "30"))
-        self.auth_cfg = auth or ({"kind": "bearer_env", "env": token_env} if token_env else {"kind": "none"})
+        self.auth_cfg = auth or {"kind": "none"}
         self.default_headers = dict(default_headers or {"Accept": "application/json"})
-        self.base_params = dict(params or {})
+        self.base_params = dict(params or {}) # Parâmetros base para todas as requisições
 
         self._session = requests.Session()
         self._max_retries = int(os.getenv("API_MAX_RETRIES", "3"))
         self._backoff_base = float(os.getenv("API_BACKOFF_BASE", "0.5"))
         self._max_pages = int(os.getenv("API_MAX_PAGES", "1000"))
 
-        self._inc_field: Optional[str] = None
-        self._inc_from: Optional[str] = None
-
         self._oauth: Optional[OAuth2Client] = None
         if self.auth_cfg.get("kind") == "oauth2_generic":
             if OAuth2Client is None:
                 raise RuntimeError("oauth2_generic: OAuth2Client indisponível.")
+            # ... (lógica do OAuth2 permanece a mesma)
             token_url = os.getenv(self.auth_cfg.get("token_url_env", "OAUTH_TOKEN_URL"), "")
             client_id = os.getenv(self.auth_cfg.get("client_id_env", "OAUTH_CLIENT_ID"), "")
             client_secret = os.getenv(self.auth_cfg.get("client_secret_env", "OAUTH_CLIENT_SECRET"), "")
@@ -94,13 +69,7 @@ class APISourceAdapter:
             self.log.addHandler(h)
         self.log.setLevel(logging.INFO)
 
-    # incremental pushdown
-    def configure_incremental(self, *, field: str, from_date: str) -> None:
-        self._inc_field = field
-        self._inc_from = from_date
-        self.log.info("📨 Incremental pushdown ativo: %s >= %s", field, from_date)
-
-    # headers por estratégia
+    # ... (método _headers permanece o mesmo)
     def _headers(self) -> Dict[str, str]:
         h = dict(self.default_headers)
         kind = (self.auth_cfg or {}).get("kind", "none")
@@ -125,7 +94,7 @@ class APISourceAdapter:
             return h
 
         if kind == "query_token":
-            return h  # param entra em _first_page_params
+            return h
 
         if kind == "oauth2_generic":
             if not self._oauth:
@@ -135,22 +104,26 @@ class APISourceAdapter:
 
         raise RuntimeError(f"Tipo de autenticação desconhecido: {kind}")
 
-    # params iniciais
     def _first_page_params(self) -> Dict[str, Any]:
+        """Monta os parâmetros para a primeira chamada da API."""
+        # Começa com os parâmetros base definidos no Job
         params = dict(self.base_params)
-        if self._inc_field and self._inc_from:
-            params[str(self._inc_field)] = str(self._inc_from)
+
+        # Adiciona parâmetros de autenticação, se aplicável
         if self.auth_cfg.get("kind") == "query_token":
             token = os.getenv(self.auth_cfg.get("env") or "", "")
             if not token:
                 raise RuntimeError("query_token: variável de ambiente do token não definida.")
             params[self.auth_cfg.get("param", "apikey")] = token
+        
+        # Adiciona parâmetros de paginação
         if self.paging.get("mode", "page") == "page":
             params[self.paging.get("page_param", "page")] = int(self.paging.get("start_page", 1))
             params[self.paging.get("size_param", "page_size")] = int(self.paging.get("size", 200))
+        
         return params
 
-    # próxima página
+    # ... (métodos _next_page_params, _request_with_retries, extract e _rows_from_payload permanecem os mesmos)
     def _next_page_params(self, prev_json: Dict[str, Any], prev_params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         pconf = self.paging or {}
         if not pconf:
@@ -175,7 +148,6 @@ class APISourceAdapter:
             return nxt
         return None
 
-    # GET com retries (e refresh em 401 para OAuth2)
     def _request_with_retries(self, url: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
         last_exc: Optional[Exception] = None
         headers = self._headers()
@@ -197,7 +169,6 @@ class APISourceAdapter:
                 time.sleep(wait)
         raise last_exc or RuntimeError("Falha desconhecida ao chamar a API")
 
-    # extract
     def extract(self) -> pd.DataFrame:
         url = self.endpoint
         params = self._first_page_params()
@@ -229,7 +200,6 @@ class APISourceAdapter:
         self.log.info("🧰 Total coletado: %d linhas em %.2fs", len(all_rows), time.perf_counter() - t0)
         return pd.DataFrame(all_rows)
 
-    # heurística p/ achar lista de itens
     def _rows_from_payload(self, js: Any) -> List[Dict[str, Any]]:
         if isinstance(js, list):
             return js
