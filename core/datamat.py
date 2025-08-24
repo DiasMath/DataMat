@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Union
+from typing import Any, Dict, Iterable, Optional, Union, Tuple
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -75,21 +75,13 @@ class DataMat:
 
     @classmethod
     def engine_from_env(cls, db_name: str, env_path: Union[str, Path]) -> Engine:
-        """
-        Cria um Engine lendo o .env:
-          - DB_URL: ex. "mysql+pymysql://user:pass@host:3306/{db}?charset=utf8mb4"
-          - Substitui {db} por `db_name`
-          - Usa DB_ECHO e parâmetros de pool (DB_POOL_SIZE, etc.)
-        """
         cls._load_env(env_path)
-
         url_tpl = os.getenv("DB_URL")
         if not url_tpl:
             raise cls.DataMatError("DB_URL ausente no .env (ex.: mysql+pymysql://user:pass@host:3306/{db}?charset=utf8mb4)")
         if "{db}" not in url_tpl:
             raise cls.DataMatError("DB_URL precisa conter o placeholder {db} para o nome do banco.")
         url = url_tpl.replace("{db}", db_name)
-
         echo = str(os.getenv("DB_ECHO", "0")).strip().lower() in ("1", "true", "on", "yes", "y")
         engine = create_engine(
             url,
@@ -103,17 +95,9 @@ class DataMat:
 
     @classmethod
     def from_env(cls, db_name: str, env_path: Union[str, Path]) -> "DataMat":
-        """
-        Constrói um DataMat para o banco `db_name` com configs de ingestão do .env:
-          - INGEST_SCHEMA (se vazio -> None)
-          - INGEST_IF_EXISTS, INGEST_CHUNKSIZE, INGEST_METHOD
-          - MYSQL_COLLATION
-        """
         engine = cls.engine_from_env(db_name, env_path)
-
         schema_raw = os.getenv("INGEST_SCHEMA")
         ingest_schema = None if (schema_raw is None or schema_raw.strip() == "") else schema_raw.strip()
-
         cfg_ingest = {
             "schema":     ingest_schema,
             "if_exists":  os.getenv("INGEST_IF_EXISTS", "append"),
@@ -123,7 +107,6 @@ class DataMat:
         }
         return cls(engine, cfg_ingest)
 
-    # ========= estado/ctor =========
     def __init__(self, engine: Engine, cfg_ingest: Dict[str, Any]) -> None:
         self.engine = engine
         self.cfg: Dict[str, Any] = {
@@ -133,18 +116,15 @@ class DataMat:
             "method":     cfg_ingest.get("method", "multi"),
             "collation":  cfg_ingest.get("collation") or os.getenv("MYSQL_COLLATION") or "utf8mb4_unicode_ci",
         }
-        # Credenciais cruas (quando possível) p/ PyMySQL (merge)
         self._mysql_conn_info: Dict[str, Any] = {}
         try:
-            u = engine.url  # type: ignore
+            u = engine.url
             self._mysql_conn_info = {
                 "host": u.host, "port": u.port or 3306, "user": u.username,
                 "password": u.password, "database": u.database, "charset": "utf8mb4",
             }
         except Exception:
             ...
-
-        # logger minimalista (somente ERRO)
         self.log = logging.getLogger("datamat")
         if not self.log.handlers:
             h = logging.StreamHandler()
@@ -152,9 +132,6 @@ class DataMat:
             self.log.addHandler(h)
         self.log.setLevel(logging.ERROR)
 
-    # =========================
-    # ======= PREPARO =========
-    # =========================
     def prepare_dataframe(
         self, df: pd.DataFrame, *, columns: Optional[Iterable[str]] = None,
         rename_map: Optional[Dict[str, str]] = None, required: Optional[Iterable[str]] = None,
@@ -181,9 +158,6 @@ class DataMat:
                     w[c] = w[c].astype("string").str.strip()
         return w
 
-    # =========================
-    # ======= HELPERS =========
-    # =========================
     def _is_mysql(self) -> bool:
         try:
             name = (self.engine.dialect.name or "").lower()
@@ -193,9 +167,10 @@ class DataMat:
 
     def _open_mysql_conn(self):
         info = self._mysql_conn_info or {}
-        host = info.get("host"); port = info.get("port", 3306)
-        user = info.get("user"); pwd = info.get("password")
-        db   = info.get("database"); chs = info.get("charset", "utf8mb4")
+        host, port, user, pwd, db, chs = (
+            info.get("host"), info.get("port", 3306), info.get("user"),
+            info.get("password"), info.get("database"), info.get("charset", "utf8mb4")
+        )
         if not (host and user and pwd and db):
             raise self.DataMatError("Credenciais MySQL incompletas para PyMySQL.")
         return pymysql.connect(
@@ -217,7 +192,6 @@ class DataMat:
         from pandas.api import types as t
         return t.is_string_dtype(series) or t.is_object_dtype(series)
 
-    # ----- tipos/schema MySQL -----
     def _mysql_parse_type(self, type_str: str) -> dict:
         t = (type_str or "").strip().lower()
         m = re.match(r"(\w+)(?:\((\d+)(?:,(\d+))?\))?", t)
@@ -231,7 +205,7 @@ class DataMat:
     def _mysql_column_types(self, cur, qualified_table: str) -> dict[str, dict]:
         cur.execute(f"SHOW COLUMNS FROM {qualified_table}")
         types: dict[str, dict] = {}
-        for row in cur.fetchall():  # (Field, Type, Null, Key, Default, Extra)
+        for row in cur.fetchall():
             types[row[0]] = self._mysql_parse_type(row[1])
         return types
 
@@ -250,8 +224,8 @@ class DataMat:
                     txt = (s.astype(str)
                            .str.replace(r"\s", "", regex=True)
                            .str.replace("R$", "", regex=False)
-                           .str.replace(".", "", regex=False)
-                           .str.replace(",", ".", regex=False))
+                           .str.replace(".", "", regex=False, fixed=True)
+                           .str.replace(",", ".", regex=False, fixed=True))
                     s = pd.to_numeric(txt, errors="coerce")
                 s = s.round(scale)
                 max_abs = (10 ** (prec - scale)) - (10 ** (-scale))
@@ -273,48 +247,24 @@ class DataMat:
         cur.execute(f"SHOW COLUMNS FROM {qualified_table}")
         return [row[0] for row in cur.fetchall()]
 
-    def _mysql_has_unique_covering_index(self, cur, qualified_table: str, key_cols: list[str]) -> bool:
-        cur.execute(f"SHOW INDEX FROM {qualified_table}")
-        rows = cur.fetchall()
-        uniques: dict[str, list[str]] = {}
-        for r in rows:
-            non_unique = r[1]
-            key_name   = r[2]
-            col_name   = r[4]
-            if non_unique == 0:
-                uniques.setdefault(key_name, []).append(col_name)
-        key_set = set(key_cols)
-        return any(key_set.issubset(set(cols)) for cols in uniques.values())
-
-    # =========================
-    # ======= ESCRITA =========
-    # =========================
     def merge_into_mysql(
-        self,
-        df: pd.DataFrame,
-        table_name: str,
-        *,
-        key_cols: Iterable[str],
-        compare_cols: Optional[Iterable[str]] = None,
-        schema: Optional[str] = None,
-        chunksize: Optional[int] = None,
-        job_name: Optional[str] = None,
-    ) -> int:
+        self, df: pd.DataFrame, table_name: str, *,
+        key_cols: Iterable[str], compare_cols: Optional[Iterable[str]] = None,
+        schema: Optional[str] = None, chunksize: Optional[int] = None, job_name: Optional[str] = None,
+    ) -> Tuple[int, int]:
         if df.empty:
-            return 0
+            return 0, 0
         if not self._is_mysql():
             raise self.DataMatError("merge_into_mysql requer dialeto MySQL.")
 
-        # tratar '' como None
         eff_sc = schema if schema not in ("", None) else (self.cfg["schema"] or None)
         eff_cs = int(chunksize or self.cfg["chunksize"])
         coll   = self.cfg["collation"]
 
-        if isinstance(key_cols, (str, bytes)): key_cols = [key_cols]
-        if compare_cols is not None and isinstance(compare_cols, (str, bytes)): compare_cols = [compare_cols]
         key_cols = list(key_cols or [])
         if not key_cols:
             raise self.DataMatError("key_cols é obrigatório para MERGE.")
+        
         miss = [c for c in key_cols if c not in df.columns]
         if miss:
             raise self.DataMatError(f"Chaves ausentes no DataFrame (job={job_name} table={table_name}): {miss}")
@@ -378,14 +328,14 @@ class DataMat:
                 ins_stg_sql = f"INSERT INTO {tmp_tbl} ({cols_csv}) VALUES ({placeholders})"
                 rows_iter = (tuple(None if pd.isna(v) else v for v in r) for r in df.itertuples(index=False, name=None))
 
-                batch = []; staged = 0
+                batch = []
                 for row in rows_iter:
                     batch.append(row)
                     if len(batch) >= eff_cs:
                         cur.executemany(ins_stg_sql, batch)
-                        staged += len(batch); batch = []
+                        batch = []
                 if batch:
-                    cur.executemany(ins_stg_sql, batch); staged += len(batch)
+                    cur.executemany(ins_stg_sql, batch)
 
                 first_key = key_cols[0]
                 cur.execute(f"""
@@ -393,16 +343,16 @@ class DataMat:
                     LEFT JOIN {tgt_tbl} tgt ON {on_expr}
                     WHERE tgt.`{first_key}` IS NULL
                 """)
-                pre_ins = int(cur.fetchone()[0])
+                rows_to_insert = int(cur.fetchone()[0])
 
                 cur.execute(f"""
                     SELECT COUNT(*) FROM {tmp_tbl} src
                     JOIN {tgt_tbl} tgt ON {on_expr}
                     WHERE {change_pred}
                 """)
-                pre_upd = int(cur.fetchone()[0])
+                rows_to_update = int(cur.fetchone()[0])
 
-                if pre_ins > 0:
+                if rows_to_insert > 0:
                     cur.execute(f"""
                         INSERT INTO {tgt_tbl} ({cols_csv})
                         SELECT {src_cols_csv}
@@ -411,7 +361,7 @@ class DataMat:
                         WHERE tgt.`{first_key}` IS NULL
                     """)
 
-                if pre_upd > 0 and upd_set:
+                if rows_to_update > 0 and upd_set:
                     cur.execute(f"""
                         UPDATE {tgt_tbl} AS tgt
                         JOIN  {tmp_tbl} AS src ON {on_expr}
@@ -419,14 +369,10 @@ class DataMat:
                         WHERE {change_pred}
                     """)
 
-                try:
-                    cur.execute(f"DROP TEMPORARY TABLE IF EXISTS {tmp_tbl};")
-                except Exception:
-                    ...
+                cur.execute(f"DROP TEMPORARY TABLE IF EXISTS {tmp_tbl};")
 
             conn.commit()
-            return pre_ins + pre_upd
-
+            return rows_to_insert, rows_to_update
         except Exception:
             try: conn.rollback()
             except Exception: ...
@@ -436,18 +382,15 @@ class DataMat:
             except Exception: ...
 
     def to_db(
-        self, df: pd.DataFrame, table_name: str, * ,
+        self, df: pd.DataFrame, table_name: str, *,
         if_exists: Optional[str] = None, chunksize: Optional[int] = None,
         dtype_sql: Optional[Dict[str, Any]] = None, schema: Optional[str] = None,
-    ) -> int:
+    ) -> Tuple[int, int]:
         if df.empty:
-            return 0
-
+            return 0, 0
         eff_if = if_exists or self.cfg["if_exists"]
         eff_cs = chunksize or self.cfg["chunksize"]
-        # tratar '' como None
         eff_sc = schema if schema not in ("", None) else (self.cfg["schema"] or None)
-
         try:
             df.to_sql(
                 table_name,
@@ -459,19 +402,41 @@ class DataMat:
                 method=self.cfg["method"],
                 dtype=dtype_sql
             )
-            return int(len(df))
+            return int(len(df)), 0
         except SQLAlchemyError:
             raise
 
-    # =========================
-    # ======= PROCS SQL =======
-    # =========================
     def call_proc(self, sql: str) -> None:
         with self.engine.begin() as conn:
             conn.exec_driver_sql(sql)
 
+    def execute_sql_script(self, script_content: str) -> None:
+        script_content = re.sub(r'--.*?\n', '', script_content)
+        statements = []
+        current_delimiter = ';'
+        buffer = ''
+        for line in (script_content + '\n').splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.upper().startswith('DELIMITER '):
+                if buffer.strip():
+                    statements.append(buffer)
+                buffer = ''
+                current_delimiter = line.split()[1]
+                continue
+            buffer += line + '\n'
+            if buffer.strip().endswith(current_delimiter):
+                statement = buffer.strip()[:-len(current_delimiter)].strip()
+                if statement:
+                    statements.append(statement)
+                buffer = ''
+        if buffer.strip():
+            statements.append(buffer.strip())
+        with self.engine.connect() as conn:
+            for stmt in statements:
+                conn.exec_driver_sql(stmt)
 
-# -------- utils locais --------
 def _auto(x: str) -> Any:
     if x is None:
         return None

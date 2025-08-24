@@ -1,0 +1,103 @@
+-- =================================================================================
+-- TEMPLATE PARA PROCEDURE DE CARGA INCREMENTAL (UPSERT)
+--
+-- INSTRUÇÕES DE USO:
+-- 1. Copie este arquivo e renomeie para "spCarga_Dim<SuaTabela>.sql".
+-- 2. Use a função "Localizar e Substituir" do seu editor para trocar os 
+--    placeholders abaixo pelos valores corretos.
+--
+-- PLACEHOLDERS:
+-- __NOME_PROCEDURE__     -> Ex: spCarga_DimCliente
+-- __SCHEMA_DW__          -> Ex: HASHTAG_DW
+-- __TABELA_DW__          -> Ex: tbDim_Cliente
+-- __SCHEMA_STG__         -> Ex: HASHTAG_STG
+-- __TABELA_STG__         -> Ex: tbSTG_Cliente
+-- __CHAVE_NEGOCIO__      -> Coluna para o JOIN. Ex: ClienteID
+-- __COLUNAS_UPDATE__     -> Lista de colunas para o SET. Ex: dw.Nome = stg.Nome, dw.Cidade = stg.Cidade
+-- __COLUNAS_INSERT__     -> Lista de colunas para o INSERT. Ex: ClienteID, Nome, Cidade
+-- __VALORES_INSERT__     -> Lista de valores do SELECT. Ex: stg.ClienteID, stg.Nome, stg.Cidade
+-- __COLUNAS_WHERE__      -> Condições para o WHERE do UPDATE. Ex: dw.Nome <=> stg.Nome IS NOT TRUE OR dw.Cidade <=> stg.Cidade IS NOT TRUE
+-- =================================================================================
+
+DROP PROCEDURE IF EXISTS __NOME_PROCEDURE__;
+
+DELIMITER //
+
+CREATE PROCEDURE __NOME_PROCEDURE__(
+    OUT p_inserted_rows INT,
+    OUT p_updated_rows INT
+)
+BEGIN
+    -- =================================================================================
+    -- DECLARAÇÕES E CONFIGURAÇÃO INICIAL
+    -- =================================================================================
+    DECLARE v_nome_procedure VARCHAR(100) DEFAULT '__NOME_PROCEDURE__';
+    DECLARE v_mensagem_log TEXT;
+
+    -- Bloco de tratamento de erros: reverte a transação e loga o erro.
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        GET DIAGNOSTICS CONDITION 1 v_mensagem_log = MESSAGE_TEXT;
+        INSERT INTO __SCHEMA_DW__.tbInfra_LogCarga (NomeProcedure, Mensagem) 
+        VALUES (v_nome_procedure, CONCAT('ERRO: ', v_mensagem_log));
+        
+        -- Opcional: Sinaliza o erro para a aplicação que chamou a procedure.
+        -- SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_mensagem_log;
+    END;
+
+    -- Inicia a transação para garantir a atomicidade da carga.
+    START TRANSACTION;
+
+    -- =================================================================================
+    -- PASSO 1: ATUALIZAR REGISTOS EXISTENTES E ALTERADOS (MERGE - UPDATE)
+    -- Identifica registros que existem em STG e DW (pela chave de negócio)
+    -- e que tiveram alguma alteração nos seus atributos.
+    -- =================================================================================
+    UPDATE
+        __SCHEMA_DW__.__TABELA_DW__ AS dw
+    JOIN
+        __SCHEMA_STG__.__TABELA_STG__ AS stg ON dw.__CHAVE_NEGOCIO__ = stg.__CHAVE_NEGOCIO__
+    SET
+        __COLUNAS_UPDATE__
+    WHERE
+        __COLUNAS_WHERE__; -- Usamos o operador <=> para tratar corretamente valores NULL.
+
+    -- Captura o número de linhas atualizadas para o log.
+    SET p_updated_rows = ROW_COUNT();
+
+    -- =================================================================================
+    -- PASSO 2: INSERIR NOVOS REGISTOS (MERGE - INSERT)
+    -- Identifica registros que existem na STG mas não existem no DW
+    -- e os insere.
+    -- =================================================================================
+    INSERT INTO
+        __SCHEMA_DW__.__TABELA_DW__ (__COLUNAS_INSERT__)
+    SELECT
+        __VALORES_INSERT__
+    FROM
+        __SCHEMA_STG__.__TABELA_STG__ AS stg
+    LEFT JOIN
+        __SCHEMA_DW__.__TABELA_DW__ AS dw 
+            ON stg.__CHAVE_NEGOCIO__ = dw.__CHAVE_NEGOCIO__
+    WHERE
+        dw.__CHAVE_NEGOCIO__ IS NULL;
+
+    -- Captura o número de linhas inseridas para o log.
+    SET p_inserted_rows = ROW_COUNT();
+    
+    -- =================================================================================
+    -- PASSO 3: LOG DE SUCESSO E COMMIT
+    -- =================================================================================
+    
+    SET v_mensagem_log = CONCAT('Sucesso! Inseridos: ', IFNULL(p_inserted_rows, 0), ' - Atualizados: ', IFNULL(p_updated_rows, 0));
+    
+    INSERT INTO __SCHEMA_DW__.tbInfra_LogCarga (NomeProcedure, Mensagem, LinhasAfetadas) 
+    VALUES (v_nome_procedure, v_mensagem_log, IFNULL(p_inserted_rows, 0) + IFNULL(p_updated_rows, 0));
+
+    -- Confirma as alterações no banco de dados.
+    COMMIT;
+
+END //
+
+DELIMITER ;

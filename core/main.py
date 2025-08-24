@@ -1,6 +1,4 @@
-# core/main.py
 from __future__ import annotations
-
 import importlib
 import os
 import re
@@ -10,7 +8,7 @@ from typing import Tuple, List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from core.datamat import DataMat
@@ -175,7 +173,7 @@ def build_adapter(job) -> object:
 # =========================
 # ===== RUN A JOB =========
 # =========================
-def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
+def run_job(dm: DataMat, job, mappings) -> Tuple[str, int, int]:
     t_job0 = time.perf_counter()
     print(f"▶️  [{job.name}] Iniciando extração...")
 
@@ -218,8 +216,8 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
             s.astype(str)
              .str.replace(r"\s", "", regex=True)
              .str.replace("R$", "", regex=False)
-             .str.replace(".", "", regex=False)
-             .str.replace(",", ".", regex=False)
+             .str.replace(".", "", regex=False, fixed=True)
+             .str.replace(",", ".", regex=False, fixed=True)
         )
         return pd.to_numeric(txt, errors="coerce").round(2)
     money_candidates = [c for c in df.columns if any(tok in c.lower() for tok in ("valor", "preco", "preço", "custo", "total"))]
@@ -241,7 +239,7 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
     t5 = time.perf_counter()
     try:
         if eff_keys and dm._is_mysql():
-            inserted = dm.merge_into_mysql(
+            inserted, updated = dm.merge_into_mysql(
                 df, job.table,
                 key_cols=eff_keys,
                 compare_cols=eff_cmp,
@@ -249,11 +247,11 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
                 job_name=job.name,
             )
         else:
-            inserted = dm.to_db(df, job.table, schema=getattr(job, "schema", None))
+            inserted, updated = dm.to_db(df, job.table, schema=getattr(job, "schema", None))
 
-        print(f"🎉 [{job.name}] Carga concluída: {inserted} linhas em {time.perf_counter()-t5:.2f}s")
+        print(f"🎉 [{job.name}] Carga concluída: {inserted} inseridos, {updated} atualizados em {time.perf_counter()-t5:.2f}s")
         print(f"⏱️  [{job.name}] Tempo total do job: {time.perf_counter()-t_job0:.2f}s")
-        return job.name, inserted
+        return job.name, inserted, updated
 
     except Exception as e:
         print(f"❌ [{job.name}] Falha na carga: {e.__class__.__name__}")
@@ -272,7 +270,7 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int]:
 # =========================
 # ===== RUN CLIENT ========
 # =========================
-def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List[Tuple[str, int]]]:
+def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List]:
     load_project_and_tenant_env(client_id)
 
     jobs_mod = importlib.import_module(f"tenants.{client_id}.pipelines.jobs")
@@ -305,36 +303,81 @@ def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List[T
             dm_cache[resolved] = DataMat(engine, ingest_cfg)
         return dm_cache[resolved]
 
-    total = 0
-    resultados: List[Tuple[str, int]] = []
-
+    stg_results: List[Tuple[str, int, int]] = []
+    
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = []
-        for job in JOBS:
-            dm = get_dm_for_job(job)
-            futures.append(pool.submit(run_job, dm, job, MAPPINGS))
-
+        futures = {pool.submit(run_job, get_dm_for_job(job), job, MAPPINGS): job for job in JOBS}
         for fut in as_completed(futures):
-            name, n = fut.result()
-            print(f"📦 [{client_id}] {name}: {n} linhas")
-            resultados.append((name, n))
-            total += n
+            name, inserted, updated = fut.result()
+            print(f"📦 [STG] {name}: {inserted} inseridos, {updated} atualizados.")
+            stg_results.append((name, inserted, updated))
 
-    for proc in PROCS:
-        if isinstance(proc, dict):
-            dbn = os.getenv(proc.get("db_name", ""), "")
+    print(f"🔄 [{client_id}] Sincronizando Stored Procedures do DW...")
+    tenant_dw_path = Path("tenants") / client_id / "dw"
+    if tenant_dw_path.is_dir():
+        sql_files = sorted(list(tenant_dw_path.glob('**/*.sql')))
+        if sql_files:
+            dw_db_name = os.getenv("DB_DW_NAME")
+            if not dw_db_name:
+                raise RuntimeError("DB_DW_NAME não está definido no .env para sincronizar as procedures.")
+            
+            if dw_db_name not in dm_cache:
+                dm_cache[dw_db_name] = DataMat(make_engine_for_db(dw_db_name), ingest_cfg)
+            dm_dw = dm_cache[dw_db_name]
+
+            for sql_file in sql_files:
+                print(f"   -> Aplicando {sql_file.relative_to(tenant_dw_path)}...")
+                script_content = sql_file.read_text(encoding="utf-8")
+                dm_dw.execute_sql_script(script_content)
+            print(f"✅ [{client_id}] Stored Procedures sincronizadas.")
+
+    dw_inserted = 0
+    dw_updated = 0
+    for proc_info in PROCS:
+        if isinstance(proc_info, dict):
+            dbn = os.getenv(proc_info.get("db_name", ""), "")
             if not dbn:
                 raise RuntimeError("PROCS: db_name inválido ou não resolvido.")
+            
             dm = dm_cache.get(dbn) or DataMat(make_engine_for_db(dbn), ingest_cfg)
-            dm.call_proc(proc["sql"])
-        else:
-            if not dm_cache:
-                raise RuntimeError("Sem DataMat disponível para executar PROCS.")
-            next(iter(dm_cache.values())).call_proc(proc)
+            
+            proc_sql = proc_info["sql"]
+            proc_name_match = re.search(r"CALL\s+([\w\.]+)", proc_sql, re.IGNORECASE)
+            if not proc_name_match:
+                 raise ValueError(f"Comando de procedure inválido, esperado 'CALL nome_proc()': {proc_sql}")
+            proc_name = proc_name_match.group(1)
 
-    print(f"✅ [{client_id}] Total inserido: {total}")
-    return total, resultados
+            print(f"▶️  [DW] Executando procedure: {proc_name}...")
+            
+            with dm.engine.connect() as conn:
+                trans = conn.begin()
+                try:
+                    conn.execute(text(f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows);"))
+                    result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
+                    trans.commit()
+                    inserted, updated = (int(result[0]), int(result[1])) if result and result[0] is not None else (0, 0)
+                except Exception:
+                    trans.rollback()
+                    raise
 
+            print(f"✅ [DW] {proc_name}: {inserted} linhas inseridas, {updated} linhas atualizadas.")
+            dw_inserted += inserted
+            dw_updated += updated
+
+    stg_inserted = sum(i for _, i, _ in stg_results)
+    stg_updated = sum(u for _, _, u in stg_results)
+    
+    print("\n" + "="*50)
+    print(f"📊 RESUMO FINAL DA CARGA PARA O CLIENTE: {client_id}")
+    print("="*50)
+    print(f"STG - Total Inserido:   {stg_inserted}")
+    print(f"STG - Total Atualizado: {stg_updated}")
+    print(f"DW  - Total Inserido:   {dw_inserted}")
+    print(f"DW  - Total Atualizado: {dw_updated}")
+    print("="*50 + "\n")
+
+    total_geral = stg_inserted + stg_updated + dw_inserted + dw_updated
+    return total_geral, stg_results
 
 if __name__ == "__main__":
     import sys
