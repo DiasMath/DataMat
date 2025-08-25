@@ -52,6 +52,14 @@ class OAuth2Client:
         return h
 
     def _post(self, data: dict):
+        # ---- CÓDIGO DE DEBUG ----
+        print("\n--- [DEBUG] Detalhes da Requisição para o Token ---")
+        print(f"URL: {self.token_url}")
+        print(f"Headers: {self._headers()}")
+        print(f"Data (Payload): {data}")
+        print("--------------------------------------------------\n")
+        # ---- FIM DO CÓDIGO DE DEBUG ----
+
         r = self.requests.post(self.token_url, headers=self._headers(), data=data, timeout=self.timeout)
         r.raise_for_status()
         return r.json()

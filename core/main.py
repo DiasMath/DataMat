@@ -177,67 +177,68 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int, int]:
     t_job0 = time.perf_counter()
     print(f"▶️  [{job.name}] Iniciando extração...")
 
-    adapter = build_adapter(job)
+    try: # ALTERAÇÃO: Adicionado try/except ao redor de todo o job
+        adapter = build_adapter(job)
 
-    t0 = time.perf_counter()
-    df: pd.DataFrame = adapter.extract()
-    print(f"✅ [{job.name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
+        t0 = time.perf_counter()
+        df: pd.DataFrame = adapter.extract()
+        print(f"✅ [{job.name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
 
-    spec = mappings.get(getattr(job, "map_id", None))
-    eff_columns = getattr(job, "columns", None) or (list(spec.src_to_tgt.keys()) if spec else None)
-    eff_rename  = getattr(job, "rename_map", None) or (spec.src_to_tgt if spec else None)
-    eff_req     = getattr(job, "required", None)  or (spec.required if spec else None)
-    eff_keys    = getattr(job, "key_cols", None)  or (spec.key_cols if spec else None)
-    eff_cmp     = getattr(job, "compare_cols", None) or (spec.compare_cols if spec else None)
+        spec = mappings.get(getattr(job, "map_id", None))
+        eff_columns = getattr(job, "columns", None) or (list(spec.src_to_tgt.keys()) if spec else None)
+        eff_rename  = getattr(job, "rename_map", None) or (spec.src_to_tgt if spec else None)
+        eff_req     = getattr(job, "required", None)  or (spec.required if spec else None)
+        eff_keys    = getattr(job, "key_cols", None)  or (spec.key_cols if spec else None)
+        eff_cmp     = getattr(job, "compare_cols", None) or (spec.compare_cols if spec else None)
 
-    if isinstance(eff_keys, (str, bytes)):
-        eff_keys = [eff_keys]
-    if eff_cmp is not None and isinstance(eff_cmp, (str, bytes)):
-        eff_cmp = [eff_cmp]
+        if isinstance(eff_keys, (str, bytes)):
+            eff_keys = [eff_keys]
+        if eff_cmp is not None and isinstance(eff_cmp, (str, bytes)):
+            eff_cmp = [eff_cmp]
 
-    print(f"🔧 [{job.name}] Preparando dataframe (rename/required/trim)...")
-    t1 = time.perf_counter()
-    df = dm.prepare_dataframe(
-        df,
-        columns=eff_columns,
-        rename_map=eff_rename,
-        required=eff_req,
-        drop_extra=True,
-        strip_strings=True,
-    )
-    print(f"✅ [{job.name}] Dataframe preparado: {len(df)} linhas em {time.perf_counter()-t1:.2f}s")
-
-    print(f"💰 [{job.name}] Normalizando colunas monetárias (heurística)...")
-    t3 = time.perf_counter()
-    def _normalize_money_col(s: pd.Series) -> pd.Series:
-        if s.dtype.kind in ("i", "u", "f"):
-            return s.round(2)
-        txt = (
-            s.astype(str)
-             .str.replace(r"\s", "", regex=True)
-             .str.replace("R$", "", regex=False)
-             .str.replace(".", "", regex=False, fixed=True)
-             .str.replace(",", ".", regex=False, fixed=True)
+        print(f"🔧 [{job.name}] Preparando dataframe (rename/required/trim)...")
+        t1 = time.perf_counter()
+        df = dm.prepare_dataframe(
+            df,
+            columns=eff_columns,
+            rename_map=eff_rename,
+            required=eff_req,
+            drop_extra=True,
+            strip_strings=True,
         )
-        return pd.to_numeric(txt, errors="coerce").round(2)
-    money_candidates = [c for c in df.columns if any(tok in c.lower() for tok in ("valor", "preco", "preço", "custo", "total"))]
-    for c in money_candidates:
-        df[c] = _normalize_money_col(df[c])
-    print(f"✅ [{job.name}] Normalização monetária concluída em {time.perf_counter()-t3:.2f}s")
+        print(f"✅ [{job.name}] Dataframe preparado: {len(df)} linhas em {time.perf_counter()-t1:.2f}s")
 
-    if eff_keys:
-        print(f"🧹 [{job.name}] Removendo duplicatas por chave {eff_keys} ...")
-        t4 = time.perf_counter()
-        before = len(df)
-        order_cols = [c for c in ["updated_at", "data_movimentacao", "data_emissao"] if c in df.columns]
-        if order_cols:
-            df = df.sort_values(order_cols)
-        df = df.drop_duplicates(subset=eff_keys, keep="last").reset_index(drop=True)
-        print(f"✅ [{job.name}] Dedup: {before}->{len(df)} em {time.perf_counter()-t4:.2f}s")
+        print(f"💰 [{job.name}] Normalizando colunas monetárias (heurística)...")
+        t3 = time.perf_counter()
+        def _normalize_money_col(s: pd.Series) -> pd.Series:
+            if s.dtype.kind in ("i", "u", "f"):
+                return s.round(2)
+            txt = (
+                s.astype(str)
+                 .str.replace(r"\s", "", regex=True)
+                 .str.replace("R$", "", regex=False)
+                 .str.replace(".", "", regex=False, fixed=True)
+                 .str.replace(",", ".", regex=False, fixed=True)
+            )
+            return pd.to_numeric(txt, errors="coerce").round(2)
+        money_candidates = [c for c in df.columns if any(tok in c.lower() for tok in ("valor", "preco", "preço", "custo", "total"))]
+        for c in money_candidates:
+            df[c] = _normalize_money_col(df[c])
+        print(f"✅ [{job.name}] Normalização monetária concluída em {time.perf_counter()-t3:.2f}s")
 
-    print(f"🚚 [{job.name}] Carregando no destino '{job.table}' ...")
-    t5 = time.perf_counter()
-    try:
+        if eff_keys:
+            print(f"🧹 [{job.name}] Removendo duplicatas por chave {eff_keys} ...")
+            t4 = time.perf_counter()
+            before = len(df)
+            order_cols = [c for c in ["updated_at", "data_movimentacao", "data_emissao"] if c in df.columns]
+            if order_cols:
+                df = df.sort_values(order_cols)
+            df = df.drop_duplicates(subset=eff_keys, keep="last").reset_index(drop=True)
+            print(f"✅ [{job.name}] Dedup: {before}->{len(df)} em {time.perf_counter()-t4:.2f}s")
+
+        print(f"🚚 [{job.name}] Carregando no destino '{job.table}' ...")
+        t5 = time.perf_counter()
+        
         if eff_keys and dm._is_mysql():
             inserted, updated = dm.merge_into_mysql(
                 df, job.table,
@@ -254,18 +255,10 @@ def run_job(dm: DataMat, job, mappings) -> Tuple[str, int, int]:
         return job.name, inserted, updated
 
     except Exception as e:
+        # ALTERAÇÃO: Bloco para capturar, logar o erro no banco e relançar
         print(f"❌ [{job.name}] Falha na carga: {e.__class__.__name__}")
-        dm.log.exception(
-            "ETL FAILED | job=%s table=%s rows=%d key_cols=%s compare_cols=%s | %s",
-            getattr(job, "name", "?"),
-            getattr(job, "table", "?"),
-            len(df) if isinstance(df, pd.DataFrame) else -1,
-            eff_keys,
-            eff_cmp,
-            e.__class__.__name__,
-        )
+        dm.log_etl_error(process_name=job.name, message=str(e))
         raise
-
 
 # =========================
 # ===== RUN CLIENT ========
@@ -308,64 +301,97 @@ def run_client(client_id: str, workers_per_client: int = 2) -> Tuple[int, List]:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(run_job, get_dm_for_job(job), job, MAPPINGS): job for job in JOBS}
         for fut in as_completed(futures):
-            name, inserted, updated = fut.result()
-            print(f"📦 [STG] {name}: {inserted} inseridos, {updated} atualizados.")
-            stg_results.append((name, inserted, updated))
+            try: # Adicionado try/except para capturar falhas dos jobs
+                name, inserted, updated = fut.result()
+                print(f"📦 [STG] {name}: {inserted} inseridos, {updated} atualizados.")
+                stg_results.append((name, inserted, updated))
+            except Exception as e:
+                # O log já foi feito dentro de run_job, aqui apenas registramos o resultado
+                job_failed = futures[fut]
+                print(f"📦 [STG] FALHA no job: {job_failed.name}")
+                stg_results.append((job_failed.name, -1, -1)) # Sinaliza falha
 
-    print(f"🔄 [{client_id}] Sincronizando Stored Procedures do DW...")
+    print(f"🔄 [{client_id}] Sincronizando objetos do DW (Views e Procedures)...")
     tenant_dw_path = Path("tenants") / client_id / "dw"
     if tenant_dw_path.is_dir():
-        sql_files = sorted(list(tenant_dw_path.glob('**/*.sql')))
+        view_files = sorted(list((tenant_dw_path / "views").glob('**/*.sql')))
+        proc_files = sorted(list((tenant_dw_path / "procedures").glob('**/*.sql')))
+        sql_files = view_files + proc_files
+        
         if sql_files:
             dw_db_name = os.getenv("DB_DW_NAME")
             if not dw_db_name:
-                raise RuntimeError("DB_DW_NAME não está definido no .env para sincronizar as procedures.")
+                raise RuntimeError("DB_DW_NAME não está definido no .env para sincronizar os objetos do DW.")
             
             if dw_db_name not in dm_cache:
                 dm_cache[dw_db_name] = DataMat(make_engine_for_db(dw_db_name), ingest_cfg)
             dm_dw = dm_cache[dw_db_name]
 
             for sql_file in sql_files:
-                print(f"   -> Aplicando {sql_file.relative_to(tenant_dw_path)}...")
+                relative_path = sql_file.relative_to(tenant_dw_path)
+                print(f"   -> Aplicando {relative_path}...")
                 script_content = sql_file.read_text(encoding="utf-8")
                 dm_dw.execute_sql_script(script_content)
-            print(f"✅ [{client_id}] Stored Procedures sincronizadas.")
+            print(f"✅ [{client_id}] Objetos do DW sincronizados.")
 
     dw_inserted = 0
     dw_updated = 0
-    for proc_info in PROCS:
-        if isinstance(proc_info, dict):
-            dbn = os.getenv(proc_info.get("db_name", ""), "")
-            if not dbn:
-                raise RuntimeError("PROCS: db_name inválido ou não resolvido.")
-            
-            dm = dm_cache.get(dbn) or DataMat(make_engine_for_db(dbn), ingest_cfg)
-            
-            proc_sql = proc_info["sql"]
-            proc_name_match = re.search(r"CALL\s+([\w\.]+)", proc_sql, re.IGNORECASE)
-            if not proc_name_match:
-                 raise ValueError(f"Comando de procedure inválido, esperado 'CALL nome_proc()': {proc_sql}")
-            proc_name = proc_name_match.group(1)
+    
+    proc_group_num = 1
+    for proc_group in PROCS:
+        print(f"▶️  [DW] Executando GRUPO {proc_group_num} de procedures...")
+        if not isinstance(proc_group, list):
+            raise TypeError(f"A estrutura de 'PROCS' deve ser uma lista de listas. O grupo {proc_group_num} não é uma lista.")
 
-            print(f"▶️  [DW] Executando procedure: {proc_name}...")
+        for proc_info in proc_group:
+            proc_name = "desconhecida" # Default
+            dm_dw = None
+            try: # Adicionado try/except para cada procedure
+                if isinstance(proc_info, dict):
+                    dbn = os.getenv(proc_info.get("db_name", ""), "")
+                    if not dbn:
+                        raise RuntimeError(f"PROCS: db_name inválido ou não resolvido no grupo {proc_group_num}.")
+                    
+                    dm_dw = dm_cache.get(dbn) or DataMat(make_engine_for_db(dbn), ingest_cfg)
+                    
+                    proc_sql_raw = proc_info["sql"].strip()
+                    
+                    match = re.match(r"^\s*CALL\s+([\w\.]+)", proc_sql_raw, re.IGNORECASE)
+                    if not match:
+                        raise ValueError(f"Comando de procedure inválido, esperado 'CALL nome_proc()': {proc_sql_raw}")
+                    
+                    proc_name = match.group(1)
+                    proc_sql_final = f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows);"
+                    
+                    print(f"   -> Executando procedure: {proc_name}...")
+                    
+                    with dm_dw.engine.connect() as conn:
+                        trans = conn.begin()
+                        try:
+                            conn.execute(text(proc_sql_final))
+                            result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
+                            trans.commit()
+                            inserted, updated = (int(result[0]), int(result[1])) if result and result[0] is not None else (0, 0)
+                        except Exception:
+                            trans.rollback()
+                            raise
+
+                    print(f"   -> ✅ {proc_name}: {inserted} linhas inseridas, {updated} linhas atualizadas.")
+                    dw_inserted += inserted
+                    dw_updated += updated
             
-            with dm.engine.connect() as conn:
-                trans = conn.begin()
-                try:
-                    conn.execute(text(f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows);"))
-                    result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
-                    trans.commit()
-                    inserted, updated = (int(result[0]), int(result[1])) if result and result[0] is not None else (0, 0)
-                except Exception:
-                    trans.rollback()
-                    raise
+            except Exception as e:
+                # ALTERAÇÃO: Bloco para capturar, logar o erro da procedure no banco e continuar
+                print(f"   -> ❌ FALHA na procedure: {proc_name} - {e.__class__.__name__}")
+                if dm_dw:
+                    dm_dw.log_etl_error(process_name=proc_name, message=str(e))
+                # Não relançamos o erro para permitir que o próximo grupo/cliente continue
+                
+        print(f"✅ [DW] GRUPO {proc_group_num} concluído.")
+        proc_group_num += 1
 
-            print(f"✅ [DW] {proc_name}: {inserted} linhas inseridas, {updated} linhas atualizadas.")
-            dw_inserted += inserted
-            dw_updated += updated
-
-    stg_inserted = sum(i for _, i, _ in stg_results)
-    stg_updated = sum(u for _, _, u in stg_results)
+    stg_inserted = sum(i for _, i, _ in stg_results if i != -1)
+    stg_updated = sum(u for _, _, u, in stg_results if u != -1)
     
     print("\n" + "="*50)
     print(f"📊 RESUMO FINAL DA CARGA PARA O CLIENTE: {client_id}")

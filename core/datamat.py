@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Union, Tuple
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 import pymysql
@@ -131,6 +131,39 @@ class DataMat:
             h.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s - %(name)s - %(message)s"))
             self.log.addHandler(h)
         self.log.setLevel(logging.ERROR)
+
+    def log_etl_error(self, process_name: str, message: str) -> None:
+        """
+        Registra uma falha na tabela de log do DW.
+        Usa uma conexão e transação independentes para garantir o registro.
+        """
+        try:
+            dw_schema = os.getenv("DB_DW_NAME") # Assumindo que o log está no DW
+            if not dw_schema:
+                self.log.error("DB_DW_NAME não definido, não foi possível registrar o erro no banco.")
+                return
+
+            log_table_name = f"`{dw_schema}`.`tbInfra_LogCarga`"
+            
+            # Limita a mensagem de erro para caber na coluna
+            # Supondo que a coluna 'Mensagem' seja TEXT, mas é uma boa prática
+            error_message = f"ERRO: {message[:65000]}"
+
+            sql = text(
+                f"INSERT INTO {log_table_name} (NomeProcedure, Mensagem, LinhasAfetadas) "
+                "VALUES (:name, :msg, 0)"
+            )
+            
+            # Executa em uma transação separada para garantir o commit
+            with self.engine.begin() as conn:
+                conn.execute(sql, {"name": process_name, "msg": error_message})
+
+            self.log.info("Erro registrado com sucesso na tabela de log para '%s'", process_name)
+        
+        except Exception as e:
+            # Se até o log de erro falhar, imprime no console como último recurso
+            self.log.error("FALHA AO REGISTRAR O ERRO NO BANCO: %s", e)
+
 
     def prepare_dataframe(
         self, df: pd.DataFrame, *, columns: Optional[Iterable[str]] = None,
