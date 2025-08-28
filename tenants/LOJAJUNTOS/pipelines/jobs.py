@@ -19,6 +19,9 @@ class Job:
     enrich_by_id: bool = False          # Flag para ativar o enriquecimento
     enrichment_strategy: str = 'concurrent'
     timeout: Optional[int] = None
+    data_path: Optional[str] = None                         # Ex: "data.results"
+    requests_per_minute: Optional[int] = None               # Ex: 60
+    enrichment_requests_per_minute: Optional[int] = None
 
     # ---- arquivo (se usar) ----
     file: Optional[str] = None
@@ -82,12 +85,15 @@ JOBS: List[Job] = [
         paging=PAGING,
         enrich_by_id=True,
         enrichment_strategy='sequential',
+        data_path= "data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
         params={
             "dataEmissaoInicial": "2022-01-01",
             "dataEmissaoFinal": "2022-12-31",
         }
         
-    ),
+    ),  
 
     Job(
         name="Carga STG Bling Contas a Receber",

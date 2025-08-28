@@ -67,7 +67,7 @@ MAPPINGS: Dict[str, MappingSpec] = {
         },
         key_cols=["CodigoLancamento"],
         validation_rules={
-            "CodigoLancamento"          : {"nullable": False},
+            "CodigoLancamento"          : {"nullable": False, "unique": True},
         }               
     ),
 
