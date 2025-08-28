@@ -7,7 +7,7 @@
 - Ver os dados no dataframe sem inserir no banco
     - python -m core.main HASHTAG --job "Carga STG DRE Formatos" --preview
 - Extrair o dataframe em excel para o diretório data
-    - python -m core.main LOJAJUNTOS --job "Carga STG Bling Categorias Financeiras" --export "extracao_categorias.xlsx"
+    - python -m core.main LOJAJUNTOS --job "Carga STG Bling Categorias Financeiras" --export "extracao_categorias.xlsx" --rows 100
 
 
 

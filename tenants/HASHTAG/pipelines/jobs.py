@@ -49,102 +49,117 @@ JOBS: List[Job] = [
 # ===================== CARGA STAGE ===================== #
 
     # ============= FINANCEIRO ============= #
-    Job(
-        name="Carga STG Financeiro Clientes",
-        type="api",
-        db_name="HASHTAG_STG",                      
-        table="tbSTG_FinanceiroClientes",
-        map_id="map_api_financeiro_clientes",       
-        endpoint="financeiro-clientes",
-        auth=None,                             
-        paging=PAGING,
-    ),
-    Job(
-        name="Carga STG Financeiro Fornecedores",
-        type="api",
-        db_name="HASHTAG_STG",                      
-        table="tbSTG_FinanceiroFornecedores",
-        map_id="map_api_financeiro_fornecedores",       
-        endpoint="financeiro-fornecedores",
-        auth=None,                             
-        paging=PAGING,
-    ),
-    Job(
-        name="Carga STG Financeiro Bancos",
-        type="api",
-        db_name="HASHTAG_STG",                      
-        table="tbSTG_FinanceiroBancos",
-        map_id="map_api_financeiro_bancos",       
-        endpoint="financeiro-bancos",
-        auth=None,                             
-        paging=PAGING,
-    ),
-    Job(
-        name="Carga STG Financeiro Recebimentos",
-        type="api",
-        db_name="HASHTAG_STG",                      
-        table="tbSTG_FinanceiroRecebimentos",
-        map_id="map_api_financeiro_recebimentos",       
-        endpoint="financeiro-recebimentos",
-        auth=None,                             
-        paging=PAGING,
-    ),
-    Job(
-        name="Carga STG Financeiro Pagamentos",
-        type="api",
-        db_name="HASHTAG_STG",                      
-        table="tbSTG_FinanceiroPagamentos",
-        map_id="map_api_financeiro_pagamentos",       
-        endpoint="financeiro-pagamentos",
-        auth=None,                             
-        paging=PAGING,
-    ),
+    # Job(
+    #     name="Carga STG Financeiro Clientes",
+    #     type="api",
+    #     db_name="HASHTAG_STG",                      
+    #     table="tbSTG_FinanceiroClientes",
+    #     map_id="map_api_financeiro_clientes",       
+    #     endpoint="financeiro-clientes",
+    #     auth=None,                             
+    #     paging=PAGING,
+    # ),
+    # Job(
+    #     name="Carga STG Financeiro Fornecedores",
+    #     type="api",
+    #     db_name="HASHTAG_STG",                      
+    #     table="tbSTG_FinanceiroFornecedores",
+    #     map_id="map_api_financeiro_fornecedores",       
+    #     endpoint="financeiro-fornecedores",
+    #     auth=None,                             
+    #     paging=PAGING,
+    # ),
+    # Job(
+    #     name="Carga STG Financeiro Bancos",
+    #     type="api",
+    #     db_name="HASHTAG_STG",                      
+    #     table="tbSTG_FinanceiroBancos",
+    #     map_id="map_api_financeiro_bancos",       
+    #     endpoint="financeiro-bancos",
+    #     auth=None,                             
+    #     paging=PAGING,
+    # ),
+    # Job(
+    #     name="Carga STG Financeiro Recebimentos",
+    #     type="api",
+    #     db_name="HASHTAG_STG",                      
+    #     table="tbSTG_FinanceiroRecebimentos",
+    #     map_id="map_api_financeiro_recebimentos",       
+    #     endpoint="financeiro-recebimentos",
+    #     auth=None,                             
+    #     paging=PAGING,
+    # ),
+    # Job(
+    #     name="Carga STG Financeiro Pagamentos",
+    #     type="api",
+    #     db_name="HASHTAG_STG",                      
+    #     table="tbSTG_FinanceiroPagamentos",
+    #     map_id="map_api_financeiro_pagamentos",       
+    #     endpoint="financeiro-pagamentos",
+    #     auth=None,                             
+    #     paging=PAGING,
+    # ),
 
     # ============= DRE ============= #
     Job(
         name="Carga STG DRE Formatos",
         type="api",
-        db_name="HASHTAG_STG",                      
+        db_name="DB_STG_NAME",                      
         table="tbSTG_DREFormatos",
         map_id="map_api_dre_formatos",       
         endpoint="dre-formatos",
         auth=None,                             
         paging=PAGING,
     ),
-    Job(
-        name="Carga STG DRE Plano Contas",
-        type="api",
-        db_name="HASHTAG_STG",           
-        table="tbSTG_DREPlanoContas",
-        map_id="map_api_dre_plano_contas",       
-        endpoint="dre-plano-contas",
-        auth=None,
-        paging=PAGING,
-    ),
-    Job(
-        name="Carga STG DRE Orcados",
-        type="api",
-        db_name="HASHTAG_STG",           
-        table="tbSTG_DREOrcados",
-        map_id="map_api_dre_orcados",      
-        endpoint="dre-orcados",
-        auth=None,                  
-        paging=PAGING,
-    ),
-    Job(
-        name="Carga STG DRE Realizados",
-        type="api",
-        db_name="HASHTAG_STG",             
-        table="tbSTG_DRERealizados",
-        map_id="map_api_dre_realizados",      
-        endpoint="dre-realizados",
-        auth=None,
-        paging=PAGING,
-    ),
+    # Job(
+    #     name="Carga STG DRE Plano Contas",
+    #     type="api",
+    #     db_name="HASHTAG_STG",           
+    #     table="tbSTG_DREPlanoContas",
+    #     map_id="map_api_dre_plano_contas",       
+    #     endpoint="dre-plano-contas",
+    #     auth=None,
+    #     paging=PAGING,
+    # ),
+    # Job(
+    #     name="Carga STG DRE Orcados",
+    #     type="api",
+    #     db_name="HASHTAG_STG",           
+    #     table="tbSTG_DREOrcados",
+    #     map_id="map_api_dre_orcados",      
+    #     endpoint="dre-orcados",
+    #     auth=None,                  
+    #     paging=PAGING,
+    # ),
+    # Job(
+    #     name="Carga STG DRE Realizados",
+    #     type="api",
+    #     db_name="HASHTAG_STG",             
+    #     table="tbSTG_DRERealizados",
+    #     map_id="map_api_dre_realizados",      
+    #     endpoint="dre-realizados",
+    #     auth=None,
+    #     paging=PAGING,
+    # ),
 
 ]
 
-# Procedures (string SQL ou dict). Exemplo:
-PROCS: List[Any] = [
-    # {"db_name": "DB_DW_NAME", "sql": "CALL dw.sp_pos_carga_clientes();"},
+# ==============================================================================
+#  LISTA DE PROCEDURES DE CARGA (STG -> DW)
+#  Organizada em grupos sequenciais. O orquestrador executa um grupo de cada vez.
+# ==============================================================================
+PROCS: List[List[Dict[str, Any]]] = [
+    
+    # GRUPO 1: Carga das Tabelas de Dimensão.
+    [
+        {"db_name": "DB_DW_NAME", "sql": "CALL spCarga_DimDREFormatos()"},
+        # {"db_name": "HASHTAG_DW", "sql": "CALL spCarga_DimPlanoContas"},
+        # {"db_name": "HASHTAG_DW", "sql": "CALL spCarga_DimClientes"}
+    ],
+    
+    # GRUPO 2: Carga das Tabelas Fato.
+    # [
+    #     {"db_name": "HASHTAG_DW", "sql": "CALL spCarga_FatoOrcado"},
+    #     {"db_name": "HASHTAG_DW", "sql": "CALL spCarga_FatoRealizado"},
+    # ]
 ]

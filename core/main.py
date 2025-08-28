@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse
 
 import pandas as pd
-import pandera.pandas as pa
+import pandera as pa
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -134,7 +134,7 @@ def _auto(x: str):
 # =========================
 # ===== BUILD ADAPTER =====
 # =========================
-def build_adapter(job) -> object:
+def build_adapter(job, *, row_limit: Optional[int] = None) -> object:
     jtype = getattr(job, "type", None)
 
     if jtype == "file":
@@ -161,7 +161,9 @@ def build_adapter(job) -> object:
             timeout=getattr(job, "timeout", None) or int(os.getenv("API_TIMEOUT", "30")),
             auth=getattr(job, "auth", None),
             params=getattr(job, "params", None),
-            enrich_by_id=getattr(job, "enrich_by_id", False)
+            enrich_by_id=getattr(job, "enrich_by_id", False),
+            enrichment_strategy=getattr(job, "enrichment_strategy", 'concurrent'),
+            row_limit=row_limit
         )
         return adapter
 
@@ -176,22 +178,24 @@ def build_adapter(job) -> object:
 # =========================
 # ===== RUN A JOB =========
 # =========================
-def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_path: Optional[Path] = None) -> Tuple[str, int, int]:
+def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_path: Optional[Path] = None, export_rows: Optional[int] = None) -> Tuple[str, int, int]:
     t_job0 = time.perf_counter()
     print(f"▶️  [{job.name}] Iniciando extração...")
 
     try:
-        adapter = build_adapter(job)
+        debug_row_limit = export_rows if (preview_only or export_path) else None
+        adapter = build_adapter(job, row_limit=debug_row_limit)
 
         t0 = time.perf_counter()
         df: pd.DataFrame = adapter.extract()
         print(f"✅ [{job.name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
 
         if export_path:
+            df_raw_to_save = df.head(export_rows) if export_rows is not None else df
             raw_path = export_path.with_name(f"{export_path.stem}_raw{export_path.suffix}")
-            print(f"📦 [MODO EXPORT] Salvando dados brutos em: {raw_path}")
+            print(f"📦 [MODO EXPORT] Salvando {len(df_raw_to_save)} linhas brutas em: {raw_path}")
             raw_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_excel(raw_path, index=False)
+            df_raw_to_save.to_excel(raw_path, index=False)
 
         spec = mappings.get(getattr(job, "map_id", None))
         
@@ -201,9 +205,9 @@ def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_pa
         eff_columns = getattr(job, "columns", None) or (list(spec.src_to_tgt.keys()) if spec else None)
         eff_rename  = getattr(job, "rename_map", None) or (spec.src_to_tgt if spec else None)
         eff_req     = getattr(job, "required", None)  or (spec.required if spec else None)
-        eff_keys    = getattr(job, "key_cols", None)  or (spec.key_cols if spec else None)
+        eff_keys    = getattr(job, "key_cols", None)  or (spec.key_cols if spec else [])
         eff_cmp     = getattr(job, "compare_cols", None) or (spec.compare_cols if spec else None)
-        eff_rules   = getattr(job, "validation_rules", None) or (spec.validation_rules if spec else {})
+        eff_rules   = spec.validation_rules if spec else {}
 
         if isinstance(eff_keys, (str, bytes)): eff_keys = [eff_keys]
         if eff_cmp is not None and isinstance(eff_cmp, (str, bytes)): eff_cmp = [eff_cmp]
@@ -215,28 +219,35 @@ def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_pa
             required=eff_req, drop_extra=True, strip_strings=True)
         print(f"✅ [{job.name}] Dataframe preparado: {len(df)} linhas em {time.perf_counter()-t1:.2f}s")
 
-        if eff_rules:
+        if eff_rules or eff_keys:
             print(f"🔎 [{job.name}] Validando qualidade dos dados...")
             try:
-                schema = pa.DataFrameSchema(
-                    columns={
-                        col_name: pa.Column(**rules)
-                        for col_name, rules in eff_rules.items()
-                    },
-                    strict=False,
-                    coerce=True
-                )
-                schema.validate(df, lazy=True)
-                print(f"✅ [{job.name}] Validação de dados concluída com sucesso.")
+                validation_columns = {
+                    col_name: pa.Column(**rules)
+                    for col_name, rules in eff_rules.items()
+                }
+                for key_col in eff_keys:
+                    if key_col not in validation_columns:
+                        validation_columns[key_col] = pa.Column(unique=True)
+                    else:
+                        if 'unique' not in validation_columns[key_col].properties:
+                             validation_columns[key_col].properties['unique'] = True
+
+                if validation_columns:
+                    schema = pa.DataFrameSchema(columns=validation_columns, strict=False, coerce=True)
+                    schema.validate(df, lazy=True)
+                    print(f"✅ [{job.name}] Validação de dados concluída com sucesso.")
+
             except pa.errors.SchemaErrors as err:
                 error_summary = err.failure_cases.to_markdown()
                 detailed_message = f"Falha na validação de dados:\n{error_summary}"
                 raise DataMat.DataMatError(detailed_message)
 
         if export_path:
-            print(f"📦 [MODO EXPORT] Salvando dados mapeados em: {export_path}")
+            df_mapped_to_save = df.head(export_rows) if export_rows is not None else df
+            print(f"📦 [MODO EXPORT] Salvando {len(df_mapped_to_save)} linhas mapeadas em: {export_path}")
             export_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_excel(export_path, index=False)
+            df_mapped_to_save.to_excel(export_path, index=False)
             return job.name, 0, 0
 
         print(f"💰 [{job.name}] Normalizando colunas monetárias (heurística)...")
@@ -253,9 +264,27 @@ def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_pa
         if eff_keys:
             print(f"🧹 [{job.name}] Removendo duplicatas por chave {eff_keys} ...")
             t4, before = time.perf_counter(), len(df)
-            order_cols = [c for c in ["updated_at", "data_movimentacao", "data_emissao"] if c in df.columns]
-            if order_cols: df = df.sort_values(order_cols)
-            df = df.drop_duplicates(subset=eff_keys, keep="last").reset_index(drop=True)
+            
+            # LÓGICA DE DEDUPLICAÇÃO CORRIGIDA E ROBUSTA
+            # 1. Encontra todas as linhas que são 100% idênticas e as remove.
+            #    Isso lida com as duplicatas exatas vindas da API.
+            df = df.drop_duplicates()
+            
+            # 2. Verifica se ainda existem duplicatas de CHAVE, o que indica um conflito.
+            key_duplicates_mask = df.duplicated(subset=eff_keys, keep=False)
+            if key_duplicates_mask.any():
+                conflict_ids = df[key_duplicates_mask][eff_keys].drop_duplicates().to_dict(orient='records')
+                dm.log.warning(
+                    "CONFLITO DE DADOS | job=%s | Chaves duplicadas com dados diferentes encontradas. "
+                    "Mantendo a última ocorrência por padrão. Chaves conflitantes (amostra): %s",
+                    job.name,
+                    str(conflict_ids[:5])
+                )
+            
+            # 3. A deduplicação final mantém o último registro encontrado pela API.
+            #    Como a ordenação não é garantida, esta é uma regra de resolução de conflitos.
+            df = df.drop_duplicates(subset=eff_keys, keep='last').reset_index(drop=True)
+            
             print(f"✅ [{job.name}] Dedup: {before}->{len(df)} em {time.perf_counter()-t4:.2f}s")
         
         if preview_only:
@@ -265,8 +294,9 @@ def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_pa
             print(f"ℹ️  Colunas disponíveis: {df.columns.tolist()}")
             print("-" * 80)
             if not df.empty:
-                print("📋 Amostra dos dados (5 primeiras linhas):")
-                print(df.head(5).to_markdown(index=False))
+                df_to_show = df.head(export_rows) if export_rows is not None else df.head(5)
+                print(f"📋 Amostra dos dados ({len(df_to_show)} primeiras linhas):")
+                print(df_to_show.to_markdown(index=False))
             else:
                 print("📋 O DataFrame resultante está vazio.")
             print("="*80 + "\n")
@@ -296,8 +326,10 @@ def run_job(dm: DataMat, job, mappings, *, preview_only: bool = False, export_pa
 # =========================
 def run_client(
     client_id: str, workers_per_client: int = 2, *,
-    preview_job_name: Optional[str] = None, preview_only: bool = False,
-    export_job_name: Optional[str] = None, export_path: Optional[str] = None
+    job_name_filter: Optional[str] = None,
+    preview_only: bool = False,
+    export_path: Optional[str] = None,
+    export_rows: Optional[int] = None
 ) -> Tuple[int, List]:
     load_project_and_tenant_env(client_id)
 
@@ -308,21 +340,18 @@ def run_client(
     PROCS = getattr(jobs_mod, "PROCS", [])
     MAPPINGS = getattr(mappings_mod, "MAPPINGS")
 
+    if job_name_filter:
+        target_jobs = [job for job in JOBS if job.name == job_name_filter]
+        if not target_jobs:
+            available_jobs = [j.name for j in JOBS]
+            raise ValueError(f"Job '{job_name_filter}' não encontrado. Jobs disponíveis: {available_jobs}")
+        JOBS = target_jobs
+    
     is_debug_mode = preview_only or (export_path is not None)
     
     final_export_path = None
     if export_path:
         final_export_path = Path("tenants") / client_id / "data" / export_path
-
-    if is_debug_mode:
-        job_name = preview_job_name or export_job_name
-        if not job_name: raise ValueError("O nome do job é obrigatório para o modo preview ou export (--job).")
-        
-        target_jobs = [job for job in JOBS if job.name == job_name]
-        if not target_jobs:
-            available_jobs = [j.name for j in JOBS]
-            raise ValueError(f"Job '{job_name}' não encontrado. Jobs disponíveis: {available_jobs}")
-        JOBS = target_jobs
 
     ingest_cfg = {
         "schema": os.getenv("INGEST_SCHEMA"), "if_exists": os.getenv("INGEST_IF_EXISTS", "append"),
@@ -345,7 +374,7 @@ def run_client(
     stg_results: List[Tuple[str, int, int]] = []
     
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(run_job, get_dm_for_job(job), job, MAPPINGS, preview_only=preview_only, export_path=final_export_path): job for job in JOBS}
+        futures = {pool.submit(run_job, get_dm_for_job(job), job, MAPPINGS, preview_only=preview_only, export_path=final_export_path, export_rows=export_rows): job for job in JOBS}
         for fut in as_completed(futures):
             try:
                 name, inserted, updated = fut.result()
@@ -359,6 +388,10 @@ def run_client(
 
     if is_debug_mode:
         print("✅ Modo de depuração concluído.")
+        return 0, []
+
+    if job_name_filter:
+        print(f"✅ Execução do job '{job_name_filter}' concluída.")
         return 0, []
 
     print(f"🔄 [{client_id}] Sincronizando objetos do DW (Views e Procedures)...")
@@ -435,21 +468,25 @@ def run_client(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Orquestrador de ETL para clientes.")
     parser.add_argument("client_id", help="ID do cliente a ser processado (ex: HASHTAG).")
-    parser.add_argument("--job", dest="job_name", help="Executa apenas um job específico em modo preview ou export.")
+    parser.add_argument("--job", dest="job_name", help="Executa apenas um job específico (seja em modo de carga, preview ou export).")
     parser.add_argument("--preview", action="store_true", help="Ativa o modo preview (requer --job).")
     parser.add_argument("--export", dest="export_path", help="Ativa o modo de exportação para um arquivo XLSX (requer --job).")
+    parser.add_argument("--rows", dest="export_rows", type=int, help="Limita o número de linhas para os modos --preview e --export.")
+    
     args = parser.parse_args()
     
     if (args.preview or args.export_path) and not args.job_name:
         parser.error("--preview e --export requerem que --job seja especificado.")
     if args.preview and args.export_path:
         parser.error("Não é possível usar --preview e --export ao mesmo tempo.")
+    if args.export_rows and not (args.preview or args.export_path):
+        parser.error("--rows só pode ser usado em conjunto com --preview ou --export.")
 
     load_project_and_tenant_env(client_id=None)
     run_client(
         client_id=args.client_id,
-        preview_job_name=args.job_name,
+        job_name_filter=args.job_name,
         preview_only=args.preview,
-        export_job_name=args.job_name,
-        export_path=args.export_path
+        export_path=args.export_path,
+        export_rows=args.export_rows
     )
