@@ -104,12 +104,14 @@ JOBS: List[Job] = [
         enrich_by_id=True,
         enrichment_strategy='sequential',
         data_path= "data",
+        delay_between_pages_ms=500, 
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         params={
-            "dataEmissaoInicial": "2023-01-01",
-            "dataEmissaoFinal": "2023-12-31",
+            "dataEmissaoInicial": "2022-01-01",
+            "dataEmissaoFinal": "2022-12-31",
+            "criterio": 3
         }
         
     ),  
