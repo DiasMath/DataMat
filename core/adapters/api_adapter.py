@@ -1,312 +1,281 @@
 from __future__ import annotations
-import time
 import logging
-from typing import Any, Dict, List, Optional, Set
-import requests
-import pandas as pd
+import time
 import os
+import json
+from typing import Any, Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore, Lock
 
-try:
-    from core.auth.oauth2_client import OAuth2Client
-except Exception:
-    OAuth2Client = None  # type: ignore
+import requests
+import pandas as pd
 
-class RateLimiter:
-    """Implementa um controle de taxa de requisições usando o algoritmo de token bucket."""
-    def __init__(self, requests_per_minute: int):
-        if requests_per_minute is None or requests_per_minute <= 0:
-            self.period_seconds = 0.0
-        else:
+from core.errors.exceptions import DataExtractionError
+from core.auth.oauth2_client import OAuth2Client
+
+log = logging.getLogger(__name__)
+
+
+class _RateLimiter:
+    """Implementa um controlo de taxa de requisições."""
+    def __init__(self, requests_per_minute: int | None):
+        if requests_per_minute and requests_per_minute > 0:
             self.period_seconds = 60.0 / requests_per_minute
+        else:
+            self.period_seconds = 0.0
         self.lock = Lock()
         self.last_request_time = 0.0
 
     def wait(self):
-        if self.period_seconds == 0.0:
-            return
+        if self.period_seconds == 0.0: return
         with self.lock:
-            current_time = time.monotonic()
-            elapsed = current_time - self.last_request_time
-            wait_time = self.period_seconds - elapsed
+            wait_time = self.period_seconds - (time.monotonic() - self.last_request_time)
             if wait_time > 0:
                 time.sleep(wait_time)
             self.last_request_time = time.monotonic()
 
 
-def _get_value_from_path(data: Dict[str, Any], path: str) -> Any:
-    """Navega por um dicionário usando uma string de caminho separada por pontos."""
-    try:
-        for key in path.split('.'):
-            if isinstance(data, list):
-                if not data: return None
-                data = data[0]
-            data = data[key]
-        return data
-    except (KeyError, TypeError, IndexError):
-        return None
-
-
 class APISourceAdapter:
-    """Adapter HTTP genérico (API → DataFrame) com estratégias de enriquecimento."""
-
+    """
+    Adapter para extrair dados de uma fonte API HTTP.
+    Contém a lógica completa para autenticação, paginação, extração e enriquecimento.
+    """
     def __init__(
         self,
         endpoint: str,
-        paging: Optional[Dict, Any] = None,
-        timeout: Optional[int] = None,
-        auth: Optional[Dict, Any] = None,
-        default_headers: Optional[Dict, str] = None,
-        params: Optional[Dict, Any] = None,
+        base_url_env_var: str = "API_BASE_URL",
+        paging: Optional[Dict] = None,
+        auth: Optional[Dict] = None,
+        params: Optional[Dict] = None,
         enrich_by_id: bool = False,
         enrichment_strategy: str = 'concurrent',
         row_limit: Optional[int] = None,
         data_path: Optional[str] = None,
         detail_data_path: Optional[str] = None,
         requests_per_minute: Optional[int] = 60,
-        enrichment_requests_per_minute: Optional[int] = None
-    ) -> None:
-        self.endpoint = endpoint.rstrip("/")
+        enrichment_requests_per_minute: Optional[int] = None,
+        delay_between_pages_ms: Optional[int] = None
+    ):
         self.paging = paging or {}
-        self.timeout = timeout or int(os.getenv("API_TIMEOUT", "30"))
-        self.auth_cfg = auth or {"kind": "none"}
-        self.default_headers = dict(default_headers or {"Accept": "application/json"})
-        self.base_params = dict(params or {})
+        self.base_params = params or self.paging.get("params", {})
         self.enrich_by_id = enrich_by_id
-        self.enrichment_strategy = enrichment_strategy
         self.row_limit = row_limit
         self.data_path = data_path
         self.detail_data_path = detail_data_path
-        
-        self.main_rate_limiter = RateLimiter(requests_per_minute)
-        enrich_rpm = enrichment_requests_per_minute or requests_per_minute
-        self.enrichment_rate_limiter = RateLimiter(enrich_rpm)
-        
-        self.retryable_status_codes: Set[int] = {429, 500, 502, 503, 504}
+        self.enrichment_strategy = enrichment_strategy
+        self.delay_between_pages_ms = delay_between_pages_ms
 
         self._session = requests.Session()
         self._max_retries = int(os.getenv("API_MAX_RETRIES", "3"))
         self._backoff_base = float(os.getenv("API_BACKOFF_BASE", "0.5"))
-        self._max_pages = int(os.getenv("API_MAX_PAGES", "1000"))
+        self._timeout = int(os.getenv("API_TIMEOUT", "30"))
+        self.retryable_status_codes: Set[int] = {429, 500, 502, 503, 504}
         
+        base_url = os.getenv(base_url_env_var)
+        if not base_url:
+            raise ValueError(f"A variável de ambiente '{base_url_env_var}' não está definida.")
+        self.full_endpoint_url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+        self._auth_config = auth or {}
+        self._oauth_client: OAuth2Client | None = None
+        if self._auth_config.get("kind") == "oauth2_generic":
+            self._oauth_client = self._setup_oauth_client()
+        
+        self._main_rate_limiter = _RateLimiter(requests_per_minute)
+        rpm_enrich = enrichment_requests_per_minute or requests_per_minute
+        self._enrich_rate_limiter = _RateLimiter(rpm_enrich)
+
         self._detail_workers = int(os.getenv("API_DETAIL_WORKERS", "5"))
         self._concurrent_requests = int(os.getenv("API_CONCURRENT_REQUESTS", "3"))
-        self._rate_limit_semaphore = BoundedSemaphore(self._concurrent_requests)
+        self._enrich_semaphore = BoundedSemaphore(self._concurrent_requests)
 
-        self._oauth: Optional[OAuth2Client] = None
-        if self.auth_cfg.get("kind") == "oauth2_generic":
-            if OAuth2Client is None:
-                raise RuntimeError("oauth2_generic: OAuth2Client indisponível. Verifique a instalação de 'requests-oauthlib'.")
-            
-            token_url = os.getenv(self.auth_cfg.get("token_url_env", "OAUTH_TOKEN_URL"), "")
-            client_id = os.getenv(self.auth_cfg.get("client_id_env", "OAUTH_CLIENT_ID"), "")
-            client_secret = os.getenv(self.auth_cfg.get("client_secret_env", "OAUTH_CLIENT_SECRET"), "")
-            redirect_uri = os.getenv(self.auth_cfg.get("redirect_uri_env", "OAUTH_REDIRECT_URI"), "")
-            scope = os.getenv(self.auth_cfg.get("scope_env", "OAUTH_SCOPE"), None)
-            cache_path = self.auth_cfg.get("token_cache", ".secrets/oauth_tokens.json")
-            use_basic = bool(self.auth_cfg.get("use_basic_auth", True))
-            
-            self._oauth = OAuth2Client(
-                token_url=token_url or None, client_id=client_id or None,
-                client_secret=client_secret or None, redirect_uri=redirect_uri or None,
-                scope=scope, cache_path=cache_path, timeout=self.timeout,
-                use_basic_auth=use_basic,
-            )
-            if not getattr(self._oauth, "_tokens", {}).get("access_token"):
-                auth_code = os.getenv(self.auth_cfg.get("auth_code_env", "OAUTH_AUTH_CODE"), "")
-                if auth_code:
-                    self._oauth.exchange_code(auth_code)
+    def _setup_oauth_client(self) -> OAuth2Client:
+        log.info("Configurando cliente OAuth2 para o APIAdapter...")
+        config = self._auth_config
+        client_id_var = config.get("client_id_env", "OAUTH_CLIENT_ID")
+        client_id = os.getenv(client_id_var)
+        if not client_id:
+             raise ValueError(f"Variável de ambiente '{client_id_var}' não definida para OAuth2.")
+        token_cache_path = f".secrets/bling_tokens_{client_id}.json"
+        return OAuth2Client(
+            token_url=os.getenv(config.get("token_url_env", "OAUTH_TOKEN_URL")),
+            client_id=client_id,
+            client_secret=os.getenv(config.get("client_secret_env", "OAUTH_CLIENT_SECRET")),
+            redirect_uri=os.getenv(config.get("redirect_uri_env", "OAUTH_REDIRECT_URI")),
+            scope=os.getenv(config.get("scope_env", "OAUTH_SCOPE")),
+            cache_path=token_cache_path
+        )
 
-        self.log = logging.getLogger(__name__)
-
-    def _headers(self) -> Dict[str, str]:
-        h = dict(self.default_headers)
-        kind = (self.auth_cfg or {}).get("kind", "none")
-        if kind == "none": return h
-        if kind == "bearer_env":
-            token_env_var = self.auth_cfg.get("env")
-            if not token_env_var: raise RuntimeError("bearer_env: 'env' não definido na configuração de autenticação.")
-            token = os.getenv(token_env_var, "")
-            if not token: raise RuntimeError(f"bearer_env: variável de ambiente '{token_env_var}' não definida ou vazia.")
-            h["Authorization"] = f"Bearer {token}"
-            return h
-        if kind == "header_token":
-            token_env_var = self.auth_cfg.get("env")
-            header_name = self.auth_cfg.get("header") or "X-Api-Key"
-            if not token_env_var: raise RuntimeError("header_token: 'env' não definido na configuração de autenticação.")
-            token = os.getenv(token_env_var, "")
-            if not token: raise RuntimeError(f"header_token: variável de ambiente '{token_env_var}' não definida ou vazia.")
-            h[header_name] = token
-            return h
-        if kind == "query_token": return h
+    def _get_headers(self) -> Dict[str, str]:
+        headers = {"Accept": "application/json"}
+        kind = self._auth_config.get("kind", "none")
         if kind == "oauth2_generic":
-            if not self._oauth: raise RuntimeError("oauth2_generic: cliente OAuth2 não inicializado.")
-            h["Authorization"] = f"Bearer {self._oauth.ensure_access_token()}"
-            return h
-        raise RuntimeError(f"Tipo de autenticação desconhecido: {kind}")
+            if not self._oauth_client:
+                raise RuntimeError("Cliente OAuth2 foi configurado mas não inicializado.")
+            access_token = self._oauth_client.ensure_access_token()
+            headers["Authorization"] = f"Bearer {access_token}"
+        return headers
 
-    def _request_with_retries(self, url: str, params: Optional[Dict[str, Any]] = None, *, rate_limiter: RateLimiter) -> requests.Response:
-        last_exc, headers = None, self._headers()
+    def _make_request(self, url: str, params: Dict, rate_limiter: _RateLimiter) -> requests.Response:
+        last_exc = None
         for i in range(self._max_retries):
             rate_limiter.wait()
             try:
-                r = self._session.get(url, headers=headers, params=params or {}, timeout=self.timeout)
-
-                if r.status_code == 401 and self.auth_cfg.get("kind") == "oauth2_generic" and self._oauth:
-                    self.log.warning("401 recebido. Tentando refresh de access_token ...")
-                    self._oauth.refresh(); headers = self._headers()
-                    rate_limiter.wait()
-                    r = self._session.get(url, headers=headers, params=params or {}, timeout=self.timeout)
-                
-                r.raise_for_status()
-                return r
-
-            except requests.exceptions.HTTPError as e:
+                response = self._session.get(url, headers=self._get_headers(), params=params, timeout=self._timeout)
+                if response.status_code == 401 and self._oauth_client:
+                    log.warning("Recebido status 401. Forçando refresh do token e tentando novamente...")
+                    self._oauth_client.refresh()
+                    response = self._session.get(url, headers=self._get_headers(), params=params, timeout=self._timeout)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.RequestException as e:
                 last_exc = e
-                if e.response.status_code not in self.retryable_status_codes:
-                    self.log.error(f"Erro HTTP não recuperável: {e.response.status_code} {e.response.reason}. Abortando.")
-                    raise e
-                
-                wait = self._backoff_base * (2 ** i)
-                if e.response.status_code == 429:
-                    wait = float(e.response.headers.get("Retry-After", 5))
-                    self.log.warning(f"Rate limit atingido (429). Esperando {wait:.1f}s ...")
-                else:
-                    self.log.warning("Tentativa %d falhou (%s). Retentando em %.1fs ...", i + 1, e.__class__.__name__, wait)
-                time.sleep(wait)
+                log.warning(f"Tentativa {i+1} falhou: {e}. Retentando...")
+                time.sleep(self._backoff_base * (2 ** i))
+        raise DataExtractionError("Máximo de retentativas atingido.") from last_exc
 
-            except Exception as e:
-                last_exc = e
-                wait = self._backoff_base * (2 ** i)
-                self.log.warning("Tentativa %d falhou (%s). Retentando em %.1fs ...", i + 1, e.__class__.__name__, wait)
-                time.sleep(wait)
+    def _fetch_all_pages(self) -> List[Dict]:
+        all_rows: List[Dict] = []
+        params = self._get_first_page_params()
+        page_size = params.get(self.paging.get("size_param", "limite"), 100)
+        
+        # --- DEPURADOR DE DUPLICATAS ---
+        seen_ids = set()
+        # --- FIM DO DEPURADOR ---
 
-        raise last_exc or RuntimeError("Falha desconhecida ao chamar a API")
+        for page_num in range(1, 1000):
+            if self.row_limit and len(all_rows) >= self.row_limit: break
+            
+            log.info(f"📄 Página {page_num}: GET {self.full_endpoint_url} | params={params}")
 
-    def _fetch_detail_concurrent(self, item_id: int) -> Optional[Dict[str, Any]]:
-        with self._rate_limit_semaphore:
             try:
-                detail_resp = self._request_with_retries(
-                    f"{self.endpoint}/{item_id}",
-                    rate_limiter=self.enrichment_rate_limiter
-                )
-                return self._row_from_detail_payload(detail_resp.json())
-            except Exception as exc:
-                self.log.error(f"   -> Falha ao buscar detalhes para o ID {item_id}: {exc}")
-                return None
-    
-    def _first_page_params(self) -> Dict[str, Any]:
-        params = dict(self.base_params)
-        if self.paging.get("mode", "page") == "page":
-            params[self.paging.get("page_param", "page")] = int(self.paging.get("start_page", 1))
-            params[self.paging.get("size_param", "page_size")] = int(self.paging.get("size", 100))
-        return params
+                response = self._make_request(self.full_endpoint_url, params, self._main_rate_limiter)
+                payload = response.json()
+            except Exception as e:
+                error_payload = getattr(getattr(e, 'response', None), 'text', '{}')
+                log.error(f"Falha crítica ao buscar a página {page_num}: {e}. Corpo: {error_payload}", exc_info=False)
+                raise DataExtractionError(f"Falha na requisição da página {page_num}") from e
+            
+            page_data = self._get_data_from_payload(payload, self.data_path)
+            
+            if not isinstance(page_data, list):
+                log.error(f"⛔ Formato de dados inesperado (não é uma lista). Encerrando. Payload: {payload}")
+                break
 
-    def _next_page_params(self, prev_json: Dict[str, Any], prev_params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        pconf = self.paging or {}
-        if not pconf: return None
-        if pconf.get("mode", "page") == "page":
-            page_param, size_param = pconf.get("page_param", "page"), pconf.get("size_param", "page_size")
-            size, page = int(pconf.get("size", 100)), int(prev_params.get(page_param, 1)) + 1
-            if page > self._max_pages: return None
-            nxt = dict(prev_params); nxt[page_param], nxt[size_param] = page, size
-            return nxt
-        return None
+            num_records = len(page_data)
+            
+            # --- LÓGICA DO DEPURADOR DE DUPLICATAS ---
+            newly_seen_count = 0
+            for record in page_data:
+                record_id = record.get("id")
+                if record_id is not None:
+                    if record_id in seen_ids:
+                        log.warning(f"   -> 🚨 DUPLICATA ENCONTRADA! ID '{record_id}' da página {page_num} já foi visto anteriormente.")
+                    else:
+                        seen_ids.add(record_id)
+                        newly_seen_count += 1
+            # --- FIM DA LÓGICA DO DEPURADOR ---
+
+            all_rows.extend(page_data)
+            log.info(f"   -> Recebidos: {num_records} registos ({newly_seen_count} novos IDs) | Total acumulado: {len(all_rows)}")
+            
+            if num_records < page_size:
+                log.info(f"✅ Última página detetada ({num_records} de {page_size} registos). Encerrando paginação.")
+                break
+
+            params = self._get_next_page_params(params)
+            if not params: break
+            
+            if self.delay_between_pages_ms and self.delay_between_pages_ms > 0:
+                delay_seconds = self.delay_between_pages_ms / 1000
+                log.info(f"   -> Aguardando {delay_seconds:.2f}s antes da próxima página...")
+                time.sleep(delay_seconds)
+                
+        return all_rows
+
+    def _enrich_one_detail(self, item_id: Any) -> Optional[Dict]:
+        with self._enrich_semaphore:
+            try:
+                detail_url = f"{self.full_endpoint_url}/{item_id}"
+                response = self._make_request(detail_url, params={}, rate_limiter=self._enrich_rate_limiter)
+                return self._get_data_from_payload(response.json(), self.detail_data_path)
+            except Exception as e:
+                log.error(f"Falha ao enriquecer ID {item_id}: {e}")
+                return None
+
+    def _enrich_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        if 'id' not in df.columns:
+            raise DataExtractionError("Coluna 'id' não encontrada para enriquecimento.")
+        ids_to_fetch = df['id'].dropna().unique().tolist()
+        if not ids_to_fetch:
+            log.warning("Nenhum ID único encontrado para enriquecer.")
+            return df
+        log.info(f"🔎 Enriquecendo {len(ids_to_fetch)} registos com estratégia '{self.enrichment_strategy}'...")
+        enriched_rows: List[Dict] = []
+        if self.enrichment_strategy == 'concurrent':
+            with ThreadPoolExecutor(max_workers=self._detail_workers) as executor:
+                results = executor.map(self._enrich_one_detail, ids_to_fetch)
+                enriched_rows = [row for row in results if row is not None]
+        else: # sequential
+            for i, item_id in enumerate(ids_to_fetch):
+                if (i + 1) % 50 == 0: log.info(f"   ... {i+1}/{len(ids_to_fetch)} detalhes buscados")
+                detail = self._enrich_one_detail(item_id)
+                if detail: enriched_rows.append(detail)
+        if not enriched_rows:
+            log.warning("Nenhum registo foi enriquecido com sucesso.")
+            return df
+        return pd.json_normalize(enriched_rows)
 
     def extract(self) -> pd.DataFrame:
-        url, params, all_rows = self.endpoint, self._first_page_params(), []
-        pg, t0 = 1, time.perf_counter()
-        
-        while True:
-            if self.row_limit is not None and len(all_rows) >= self.row_limit:
-                self.log.info(f" Límite de {self.row_limit} linhas atingido. Interrompendo paginação.")
-                break
-
-            self.log.info("🌐 GET %s | params=%s", url, str(params))
-            resp = self._request_with_retries(url, params=params, rate_limiter=self.main_rate_limiter)
-            js = resp.json()
-            rows = self._rows_from_payload(js)
-            if not rows:
-                self.log.info("⛔ Página %d vazia. Encerrando paginação.", pg)
-                break
-            all_rows.extend(rows)
-            self.log.info("📄 Página %d: %d linhas (acum: %d)", pg, len(rows), len(all_rows))
-            
-            params = self._next_page_params(js, params)
-            if not params:
-                break
-            pg += 1
-
-        if self.row_limit is not None:
-            all_rows = all_rows[:self.row_limit]
-
-        self.log.info("🧰 Total coletado na lista: %d linhas em %.2fs", len(all_rows), time.perf_counter() - t0)
-        
+        all_rows = self._fetch_all_pages()
         if not all_rows:
             return pd.DataFrame()
-        
+            
         df = pd.json_normalize(all_rows)
         
-        if not self.enrich_by_id or df.empty or 'id' not in df.columns:
-            return df
-        
-        ids_to_fetch = df['id'].tolist()
-        enriched_rows, t_enrich = [], time.perf_counter()
+        if 'id' in df.columns and df['id'].duplicated().any():
+            log.info(f"🧹 Duplicatas encontradas na extração bruta ({len(df)} registos). Limpando...")
+            df = df.sort_values(by='id', ascending=True, kind='mergesort').reset_index(drop=True)
+            df = df.drop_duplicates(subset=['id'], keep='last').reset_index(drop=True)
+            log.info(f"   -> Limpeza concluída. Restaram {len(df)} registos únicos.")
 
-        if self.enrichment_strategy == 'concurrent':
-            self.log.info(f"🔎 Enriquecendo {len(ids_to_fetch)} registros com estratégia CONCORRENTE (max={self._concurrent_requests})...")
-            with ThreadPoolExecutor(max_workers=self._detail_workers) as executor:
-                results = executor.map(self._fetch_detail_concurrent, ids_to_fetch)
-                enriched_rows = [row for row in results if row is not None]
+        if self.enrich_by_id:
+            df = self._enrich_data(df)
+            
+        return df
+    
+    def _get_first_page_params(self) -> Dict:
+        params = self.base_params.copy()
+        if self.paging.get("mode") == "page":
+            params[self.paging.get("page_param", "page")] = self.paging.get("start_page", 1)
+            params[self.paging.get("size_param", "limite")] = self.paging.get("size", 100) # Bling usa 'limite'
+        return params
 
-        elif self.enrichment_strategy == 'sequential':
-            self.log.info(f"🔎 Enriquecendo {len(ids_to_fetch)} registros com estratégia SEQUENCIAL...")
-            for i, item_id in enumerate(ids_to_fetch):
-                try:
-                    detail_resp = self._request_with_retries(
-                        f"{self.endpoint}/{item_id}",
-                        rate_limiter=self.enrichment_rate_limiter
-                    )
-                    detail_data = self._row_from_detail_payload(detail_resp.json())
-                    enriched_rows.append(detail_data)
-                    if (i + 1) % 50 == 0:
-                        self.log.info(f"   ... {i+1}/{len(ids_to_fetch)} detalhes buscados")
-                except Exception as exc:
-                    self.log.error(f"   -> Falha ao buscar detalhes para o ID {item_id}: {exc}")
-        else:
-            raise ValueError(f"Estratégia de enriquecimento desconhecida: '{self.enrichment_strategy}'")
+    def _get_next_page_params(self, current_params: Dict) -> Optional[Dict]:
+        if self.paging.get("mode") == "page":
+            next_params = current_params.copy()
+            page_param = self.paging.get("page_param", "page")
+            next_params[page_param] = current_params.get(page_param, 1) + 1
+            return next_params
+        return None
 
-        if not enriched_rows:
-            self.log.warning("Nenhum registro foi enriquecido com sucesso.")
-            return df
-        
-        enriched_df = pd.json_normalize(enriched_rows)
-        self.log.info("✅ Enriquecimento concluído: %d registros detalhados em %.2fs", len(enriched_df), time.perf_counter() - t_enrich)
-        return enriched_df
-
-    def _rows_from_payload(self, js: Any) -> List[Dict[str, Any]]:
-        if self.data_path:
-            data = _get_value_from_path(js, self.data_path)
-            if isinstance(data, list):
-                return data
-            self.log.warning(f"Caminho '{self.data_path}' não retornou uma lista no payload.")
+    def _get_data_from_payload(self, payload: Any, path: Optional[str]) -> Any:
+        if not path:
+            if isinstance(payload, list): return payload
+            if isinstance(payload, dict):
+                for key in ("data", "items", "results", "content"):
+                    if isinstance(payload.get(key), list):
+                        return payload[key]
+                return payload
             return []
-
-        if isinstance(js, list): return js
-        if isinstance(js, dict):
-            for key in ("data", "items", "results"):
-                val = js.get(key)
-                if isinstance(val, list): return val
-        return []
-
-    def _row_from_detail_payload(self, js: Any) -> Dict[str, Any]:
-        path = self.detail_data_path or self.data_path
-        if path:
-            data = _get_value_from_path(js, path)
-            if isinstance(data, dict):
-                return data
         
-        if isinstance(js, dict) and 'data' in js and isinstance(js['data'], dict):
-            return js['data']
-        return js
+        data = payload
+        try:
+            for key in path.split('.'):
+                if isinstance(data, list): data = data[0] if data else {}
+                data = data[key]
+            return data
+        except (KeyError, TypeError, IndexError):
+            log.warning(f"Caminho de dados '{path}' não encontrado no payload.")
+            log.info(f" -> Payload recebido: {json.dumps(payload, indent=2)}")
+            return []

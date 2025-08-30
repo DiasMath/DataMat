@@ -3,304 +3,315 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import pandera as pa
 from sqlalchemy import create_engine, text, inspect
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.exc import SQLAlchemyError
 
-# JORGE SAYS: Adicionado o import do logging que estava em falta.
+from core.errors.exceptions import (
+    DataMatError,
+    DataExtractionError,
+    DataValidationError,
+    DataLoadError
+)
+
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class DataMatConfig:
+    """Define o contrato de configuração para a classe DataMat."""
+    ingest_if_exists: str
+    ingest_chunksize: int
+    ingest_method: Optional[str]
+    etl_log_table: str
+
 
 class DataMat:
     """
-    Classe principal para interação com o banco de dados e execução de lógicas de ETL.
-    Atua como a "biblioteca de ferramentas" para o orquestrador.
+    Biblioteca de ferramentas de ETL, responsável por toda a interação com o
+    banco de dados e pela execução das etapas de um pipeline.
     """
-    class DataMatError(Exception):
-        pass
 
-    def __init__(self, engine: Engine, ingest_cfg: Dict) -> None:
+    def __init__(self, engine: Engine, config: DataMatConfig) -> None:
+        if not isinstance(engine, Engine):
+            raise TypeError("O parâmetro 'engine' deve ser uma instância de sqlalchemy.engine.Engine.")
+        if not isinstance(config, DataMatConfig):
+            raise TypeError("O parâmetro 'config' deve ser uma instância de DataMatConfig.")
+
         self.engine = engine
-        self.ingest_cfg = ingest_cfg
+        self.config = config
         self.log = logging.getLogger(f"DataMat.{engine.url.database}")
 
-    def _is_mysql(self) -> bool:
-        return self.engine.dialect.name.lower() == "mysql"
+    def run_etl_job(self, adapter: Any, job_config: Any, mapping_spec: Any) -> Tuple[str, int, int]:
+        job_name = job_config.name
+        self.log.info(f"▶️  [{job_name}] Iniciando job...")
+        t_start = time.perf_counter()
+        try:
+            df = self._extract(adapter, job_name)
+            df = self._prepare_and_map(df, job_config, mapping_spec, job_name)
+            eff_keys = self._get_effective_keys(job_config, mapping_spec)
+            df = self._deduplicate(df, eff_keys, job_name)
+            self._validate(df, eff_keys, mapping_spec, job_name)
+            df = self._transform(df, job_name)
+            inserted, updated = self._load(df, job_config, eff_keys, mapping_spec, job_name)
+            self.log.info(f"🎉 [{job_name}] Carga concluída: {inserted} inseridos, {updated} atualizados.")
+            self.log.info(f"⏱️  [{job_name}] Tempo total do job: {time.perf_counter() - t_start:.2f}s")
+            return job_name, inserted, updated
+        except DataMatError:
+            raise
+        except Exception as e:
+            self.log.error(f"❌ [{job_name}] Erro não esperado no job: {e}", exc_info=False)
+            raise DataMatError(f"Job '{job_name}' falhou devido a um erro inesperado.") from e
 
-    def execute_sql_script(self, script_content: str) -> None:
-        """Executa um script SQL que pode conter múltiplos comandos e delimitadores."""
-        with self.engine.connect() as conn:
-            # Remove comentários
-            script_content = re.sub(r'--.*?\n', '', script_content)
-            
-            # Lida com delimitadores para executar scripts complexos
-            delimiters = re.findall(r'DELIMITER\s+([^\s]+)', script_content, re.IGNORECASE)
-            delimiters.insert(0, ';') # Delimitador inicial é sempre ;
-
-            script_parts = re.split(r'DELIMITER\s+[^\s]+', script_content, flags=re.IGNORECASE)
-
-            statements = []
-            for i, part in enumerate(script_parts):
-                delimiter = delimiters[i]
-                # Divide cada parte pelo seu delimitador específico
-                sub_statements = [s.strip() for s in part.split(delimiter) if s.strip()]
-                statements.extend(sub_statements)
-
-            # Executa cada statement numa transação
-            if statements:
+    def run_dw_procedure(self, proc_name: str, resilient: bool = True) -> Tuple[int, int]:
+        self.log.info(f"   -> Executando procedure: {proc_name}...")
+        try:
+            with self.engine.connect() as conn:
                 with conn.begin():
-                    for stmt in statements:
-                        if stmt:
-                            conn.execute(text(stmt))
+                    conn.execute(text(f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows);"))
+                    result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
+                if result and result[0] is not None:
+                    inserted, updated = int(result[0]), int(result[1])
+                    self.log.info(f"   -> ✅ {proc_name}: {inserted} inseridos, {updated} atualizadas.")
+                    return inserted, updated
+                else:
+                    self.log.warning(f"   -> ⚠️  {proc_name}: Executada, mas não retornou contagens.")
+                    return 0, 0
+        except SQLAlchemyError as e:
+            self.log.error(f"   -> ❌ FALHA na procedure: {proc_name} - {e}", exc_info=True)
+            self.log_etl_error(process_name=proc_name, message=str(e))
+            if not resilient:
+                raise DataLoadError(f"Falha ao executar a procedure '{proc_name}'.") from e
+            return 0, 0
+
+    def synchronize_dw_objects(self, dw_base_path: Path, objects_to_sync: List[List[Dict]]) -> int:
+        self.log.info("🔄 Sincronizando objetos do DW...")
+        if not objects_to_sync:
+            self.log.info("Nenhum objeto do DW definido para sincronização.")
+            return 0
+        synced_count = 0
+        for i, group in enumerate(objects_to_sync):
+            self.log.info(f"   -> Executando grupo de sincronização {i+1}...")
+            for object_info in group:
+                file_path = dw_base_path / object_info["file"]
+                self.log.info(f"      -> Aplicando {object_info['file']}...")
+                if not file_path.exists():
+                    self.log.error(f"         -> ❌ ARQUIVO NÃO ENCONTRADO: {file_path}")
+                    continue
+                try:
+                    script_content = file_path.read_text(encoding="utf-8")
+                    self._execute_sql_script(script_content)
+                    synced_count += 1
+                except Exception as e:
+                    self.log.error(f"         -> ❌ FALHA ao aplicar script {file_path.name}: {e}", exc_info=True)
+        self.log.info(f"✅ {synced_count} objetos do DW sincronizados.")
+        return synced_count
 
     def log_etl_error(self, process_name: str, message: str) -> None:
-        """Registra uma falha na tabela de log do DW."""
         try:
-            log_table = os.getenv("ETL_LOG_TABLE", "tbInfra_LogCarga")
             error_message = f"ERRO: {message[:65000]}"
-            sql = text(f"INSERT INTO {log_table} (NomeProcedure, Mensagem, LinhasAfetadas) VALUES (:name, :msg, 0)")
+            sql = text(f"INSERT INTO {self.config.etl_log_table} (NomeProcedure, Mensagem, LinhasAfetadas) VALUES (:name, :msg, 0)")
             with self.engine.begin() as conn:
                 conn.execute(sql, {"name": process_name, "msg": error_message})
         except Exception as e:
-            self.log.error("FALHA AO REGISTRAR O ERRO NO BANCO: %s", e)
+            self.log.error(f"FALHA CRÍTICA: Não foi possível registrar o erro no banco. Causa: {e}")
 
-    def to_db(self, df: pd.DataFrame, table_name: str, schema: Optional[str] = None) -> Tuple[int, int]:
-        """Carrega um DataFrame para uma tabela usando o método 'append'."""
-        if df.empty:
-            return 0, 0
-        df.to_sql(
-            table_name,
-            con=self.engine,
-            schema=schema or self.ingest_cfg.get("schema"),
-            if_exists=self.ingest_cfg.get("if_exists", "append"),
-            index=False,
-            chunksize=self.ingest_cfg.get("chunksize", 2000),
-            method=self.ingest_cfg.get("method", "multi")
-        )
-        return len(df), 0
-        
-    def merge_into_mysql(
-        self, df: pd.DataFrame, table_name: str, key_cols: List[str],
-        compare_cols: Optional[List[str]] = None,
-        schema: Optional[str] = None, job_name: str = "unknown"
-    ) -> Tuple[int, int]:
-        """Executa uma operação de UPSERT (update/insert) em uma tabela MySQL."""
-        if df.empty:
-            self.log.info("[%s] DataFrame vazio, nenhuma ação de merge necessária para a tabela '%s'.", job_name, table_name)
-            return 0, 0
-        if not key_cols:
-            raise self.DataMatError("merge_into_mysql requer pelo menos uma key_col.")
+    @staticmethod
+    def log_summary(client_id: str, stg_results: List[Tuple[str, int, int]], proc_results: List[Tuple[int, int]]) -> None:
+        stg_inserted = sum(i for _, i, _ in stg_results if i != -1)
+        stg_updated = sum(u for _, _, u in stg_results if u != -1)
+        proc_inserted = sum(i for i, _ in proc_results)
+        proc_updated = sum(u for _, u in proc_results)
+        log.info("\n" + "="*50)
+        log.info(f"📊 RESUMO FINAL DA CARGA PARA O CLIENTE: {client_id}")
+        log.info("="*50)
+        log.info(f"STG    - Total Inserido:   {stg_inserted}")
+        log.info(f"STG    - Total Atualizado: {stg_updated}")
+        log.info(f"PROCS  - Total Inserido:   {proc_inserted}")
+        log.info(f"PROCS  - Total Atualizado: {proc_updated}")
+        log.info("="*50 + "\n")
 
-        with self.engine.connect() as conn:
-            trans = conn.begin()
-            temp_table_name = f"temp_{job_name.lower().replace(' ', '_')}_{int(time.time())}"
-            try:
-                # 1. Obter o schema da tabela de destino para garantir a consistência dos tipos
-                inspector = inspect(self.engine)
-                columns_info = {c['name']: c['type'] for c in inspector.get_columns(table_name, schema=schema)}
+    def _extract(self, adapter: Any, job_name: str) -> pd.DataFrame:
+        self.log.info(f"[{job_name}] Extraindo dados...")
+        t0 = time.perf_counter()
+        try:
+            df = adapter.extract()
+            self.log.info(f"✅ [{job_name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
+            return df
+        except Exception as e:
+            raise DataExtractionError(f"Falha na extração para o job '{job_name}'.") from e
 
-                # 2. Forçar os tipos de dados do DataFrame para corresponderem à tabela de destino
-                for col_name, col_type in columns_info.items():
-                    if col_name in df.columns:
-                        try:
-                            col_type_str = str(col_type).lower()
-                            if "int" in col_type_str:
-                                df[col_name] = pd.to_numeric(df[col_name], errors='coerce').astype('Int64')
-                            elif "datetime" in col_type_str:
-                                df[col_name] = pd.to_datetime(df[col_name], errors='coerce')
-                            elif any(t in col_type_str for t in ["decimal", "float", "double"]):
-                                df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
-                        except Exception as e:
-                            self.log.warning(f"[{job_name}] Não foi possível converter a coluna '{col_name}' para o tipo '{col_type}': {e}")
-                
-                # 3. Criar e carregar a tabela temporária
-                df.to_sql(temp_table_name, conn, if_exists='replace', index=False)
-                
-                cols_to_compare = compare_cols if compare_cols is not None else [c for c in df.columns if c not in key_cols]
-                
-                target_fullname = f"`{schema}`.`{table_name}`" if schema else f"`{table_name}`"
-                temp_fullname = f"`{temp_table_name}`"
-                
-                join_conditions = " AND ".join([f"dw.`{key}` = tmp.`{key}`" for key in key_cols])
-                
-                # 4. Lógica de UPDATE
-                updated_rows = 0
-                if cols_to_compare:
-                    update_set_clauses = ", ".join([f"dw.`{col}` = tmp.`{col}`" for col in cols_to_compare])
-                    update_sql = f"UPDATE {target_fullname} dw JOIN {temp_fullname} tmp ON {join_conditions} SET {update_set_clauses}"
-                    
-                    where_clauses = " OR ".join([f"dw.`{col}` <=> tmp.`{col}` IS NOT TRUE" for col in cols_to_compare])
-                    update_sql += f" WHERE {where_clauses};"
-                    
-                    result_update = conn.execute(text(update_sql))
-                    updated_rows = result_update.rowcount
-
-                # 5. Lógica de INSERT
-                all_cols = ", ".join([f"`{col}`" for col in df.columns])
-                select_cols = ", ".join([f"tmp.`{col}`" for col in df.columns])
-                
-                insert_sql = f"""
-                    INSERT INTO {target_fullname} ({all_cols})
-                    SELECT {select_cols}
-                    FROM {temp_fullname} tmp
-                    LEFT JOIN {target_fullname} dw ON {join_conditions}
-                    WHERE dw.`{key_cols[0]}` IS NULL;
-                """
-                
-                result_insert = conn.execute(text(insert_sql))
-                inserted_rows = result_insert.rowcount
-
-                # 6. Limpeza e commit
-                conn.execute(text(f"DROP TABLE {temp_fullname};"))
-                trans.commit()
-                
-                return inserted_rows, updated_rows
-            
-            except Exception:
-                trans.rollback()
-                try:
-                    conn.execute(text(f"DROP TABLE IF EXISTS {temp_fullname};"))
-                except: pass
-                raise
-
-    def prepare_dataframe(
-        self, df: pd.DataFrame, columns: Optional[List[str]] = None,
-        rename_map: Optional[Dict[str, str]] = None,
-        required: Optional[List[str]] = None,
-        drop_extra: bool = True, strip_strings: bool = True
-    ) -> pd.DataFrame:
-        """Prepara um DataFrame para carga: seleciona, renomeia e limpa colunas."""
-        if df.empty:
-            return pd.DataFrame(columns=list(rename_map.values()) if rename_map else (columns or []))
-
+    def _prepare_and_map(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
+        if df.empty: 
+            return df
+        self.log.info(f"🔧 [{job_name}] Preparando e mapeando dataframe...")
+        if not mapping_spec:
+             raise DataMatError(f"map_id '{getattr(job_config, 'map_id', 'N/A')}' não foi encontrado no mappings.py")
         w = df.copy()
-        if columns is not None:
-            missing = [c for c in columns if c not in w.columns]
-            if missing:
-                raise self.DataMatError(f"Colunas ausentes na origem: {missing}")
-            w = w[list(columns)]
-        
-        if rename_map:
+        if src_cols := list(mapping_spec.src_to_tgt.keys()):
+            if missing := [c for c in src_cols if c not in w.columns]:
+                raise DataMatError(f"Colunas de origem ausentes: {missing}")
+            w = w[src_cols]
+        if rename_map := mapping_spec.src_to_tgt:
             w = w.rename(columns=rename_map)
-        
-        if drop_extra and columns is None and rename_map:
-            keep = set(rename_map.values())
-            w = w[[c for c in w.columns if c in keep]]
-        
-        if required:
-            miss = [c for c in required if c not in w.columns]
-            if miss:
-                raise self.DataMatError(f"Colunas obrigatórias ausentes: {miss}")
-        
-        if strip_strings:
-            for c in w.columns:
-                if pd.api.types.is_string_dtype(w[c]) or pd.api.types.is_object_dtype(w[c]):
-                    try:
-                        w[c] = w[c].str.strip()
-                    except AttributeError:
-                        pass
-        
+        for c in w.select_dtypes(include=['object', 'string']).columns:
+            w[c] = w[c].str.strip()
         return w
 
-    def run_etl_job(self, adapter: Any, job_config: Any, mapping_spec: Any) -> Tuple[str, int, int]:
-        """
-        Executa a sequência completa de um job de ETL:
-        Extração -> Preparação -> Deduplicação -> Validação -> Carga.
-        """
-        job_name = job_config.name
-        log.info(f"▶️  [{job_name}] Iniciando job...")
-        t_job0 = time.perf_counter()
+    def _deduplicate(self, df: pd.DataFrame, keys: List[str], job_name: str) -> pd.DataFrame:
+        if df.empty or not keys: 
+            return df
+        self.log.info(f"🧹 [{job_name}] Removendo duplicatas pela chave {keys}...")
+        before = len(df)
+        df_dedup = df.drop_duplicates(subset=keys, keep='last').reset_index(drop=True)
+        if before > len(df_dedup):
+            self.log.info(f"✅ [{job_name}] Dedup: {before} -> {len(df_dedup)} linhas.")
+        return df_dedup
 
+    def _validate(self, df: pd.DataFrame, keys: List[str], mapping_spec: Any, job_name: str) -> None:
+        if df.empty: 
+            return
+        self.log.info(f"🔎 [{job_name}] Validando qualidade dos dados...")
+        validation_rules = getattr(mapping_spec, 'validation_rules', {})
+        if not validation_rules and not keys: 
+            return
         try:
-            # 1. EXTRAÇÃO
-            t0 = time.perf_counter()
-            df: pd.DataFrame = adapter.extract()
-            log.info(f"✅ [{job_name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
+            schema_cols = {
+                col: rules if isinstance(rules, pa.Column) else pa.Column(**rules)
+                for col, rules in validation_rules.items() 
+                }
+            for key in keys:
+                schema_cols[key] = schema_cols.get(key, pa.Column())
+                schema_cols[key].properties.update({'unique': True, 'required': True, 'nullable': False})
+            schema = pa.DataFrameSchema(columns=schema_cols, strict=False, coerce=True)
+            schema.validate(df, lazy=True)
+            self.log.info(f"✅ [{job_name}] Validação de dados concluída.")
+        except pa.errors.SchemaErrors as err:
+            message = f"Falha na validação de dados:\n{err.failure_cases.to_markdown(index=False)}"
+            raise DataValidationError(message) from err
 
-            # 2. PREPARAÇÃO E MAPEAMENTO
-            spec = mapping_spec
-            if not spec and getattr(job_config, "map_id", None):
-                 raise self.DataMatError(f"map_id '{job_config.map_id}' não foi encontrado no arquivo mappings.py")
+    def _transform(self, df: pd.DataFrame, job_name: str) -> pd.DataFrame:
+        if df.empty: 
+            return df
+        self.log.info(f"💰 [{job_name}] Aplicando transformações genéricas...")
+        def _normalize_money(s: pd.Series) -> pd.Series:
+            if pd.api.types.is_numeric_dtype(s): 
+                return s.round(4)
+            if pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s):
+                txt = s.astype(str).str.replace(r'[^\d,\.-]', '', regex=True).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                return pd.to_numeric(txt, errors="coerce").round(4)
+            return s
+        money_cols = [c for c in df.columns if any(tok in c.lower() for tok in ("valor", "preco", "preço", "custo", "total"))]
+        for col in money_cols: 
+            df[col] = _normalize_money(df[col])
+        return df
 
-            eff_keys = getattr(job_config, "key_cols", None) or (spec.key_cols if spec else [])
-            if isinstance(eff_keys, (str, bytes)): eff_keys = [eff_keys]
-
-            log.info(f"🔧 [{job_name}] Preparando dataframe...")
-            df = self.prepare_dataframe(
-                df,
-                columns=getattr(job_config, "columns", None) or (list(spec.src_to_tgt.keys()) if spec else None),
-                rename_map=getattr(job_config, "rename_map", None) or (spec.src_to_tgt if spec else None),
-                required=getattr(job_config, "required", None) or (spec.required if spec else None),
-                drop_extra=True,
-                strip_strings=True
-            )
-            log.info(f"✅ [{job_name}] Dataframe preparado: {len(df)} linhas")
-
-            # 3. DEDUPLICAÇÃO
-            if eff_keys:
-                log.info(f"🧹 [{job_name}] Removendo duplicatas por chave {eff_keys} ...")
-                t4, before = time.perf_counter(), len(df)
-                df = df.drop_duplicates(subset=eff_keys, keep='last').reset_index(drop=True)
-                log.info(f"✅ [{job_name}] Dedup: {before}->{len(df)} em {time.perf_counter()-t4:.2f}s")
-
-            # 4. VALIDAÇÃO
-            eff_rules = spec.validation_rules if spec else {}
-            if eff_rules or eff_keys:
-                log.info(f"🔎 [{job_name}] Validando qualidade dos dados...")
-                try:
-                    validation_columns = {
-                        col_name: pa.Column(**rules)
-                        for col_name, rules in eff_rules.items()
-                    }
-                    for key_col in eff_keys:
-                        if key_col not in validation_columns:
-                            validation_columns[key_col] = pa.Column(unique=True)
-                        else:
-                            if 'unique' not in validation_columns[key_col].properties:
-                                 validation_columns[key_col].properties['unique'] = True
-
-                    if validation_columns:
-                        schema = pa.DataFrameSchema(columns=validation_columns, strict=False, coerce=True)
-                        schema.validate(df, lazy=True)
-                        log.info(f"✅ [{job_name}] Validação de dados concluída com sucesso.")
-
-                except pa.errors.SchemaErrors as err:
-                    error_summary = err.failure_cases.to_markdown()
-                    detailed_message = f"Falha na validação de dados para o job '{job_name}':\n{error_summary}"
-                    raise self.DataMatError(detailed_message)
-
-            # 5. TRANSFORMAÇÕES ADICIONAIS
-            log.info(f"💰 [{job_name}] Normalizando colunas monetárias (heurística)...")
-            def _normalize_money_col(s: pd.Series) -> pd.Series:
-                if s.dtype.kind in ("i", "u", "f"): return s.round(2)
-                txt = (s.astype(str).str.replace(r"\s", "", regex=True).str.replace("R$", "", regex=False)
-                     .str.replace(".", "", regex=False, fixed=True).str.replace(",", ".", regex=False, fixed=True))
-                return pd.to_numeric(txt, errors="coerce").round(2)
-            money_candidates = [c for c in df.columns if any(tok in c.lower() for tok in ("valor", "preco", "preço", "custo", "total"))]
-            for c in money_candidates: df[c] = _normalize_money_col(df[c])
-            
-            # 6. CARGA
-            log.info(f"🚚 [{job_name}] Carregando no destino '{job_config.table}' ...")
-            if eff_keys and self._is_mysql():
-                inserted, updated = self.merge_into_mysql(
-                    df, job_config.table, key_cols=eff_keys,
-                    compare_cols=getattr(job_config, "compare_cols", None) or (spec.compare_cols if spec else None),
-                    schema=getattr(job_config, "schema", None),
-                    job_name=job_name
-                )
+    def _load(self, df: pd.DataFrame, job_config: Any, keys: List[str], mapping_spec: Any, job_name: str) -> Tuple[int, int]:
+        if df.empty: 
+            return 0, 0
+        table = job_config.table
+        schema = os.getenv(job_config.db_name) 
+        if not schema:
+            raise ValueError(f"A variável de ambiente para o banco de dados '{job_config.db_name}' não está definida.")
+        self.log.info(f"🚚 [{job_name}] Carregando {len(df)} linhas para '{schema}.{table}'...")
+        try:
+            if keys and self.engine.dialect.name.lower() == "mysql":
+                compare_cols = getattr(mapping_spec, "compare_cols", None)
+                return self._merge_into_mysql(df, table, keys, compare_cols, schema, job_name)
             else:
-                inserted, updated = self.to_db(df, job_config.table, schema=getattr(job_config, "schema", None))
-            
-            log.info(f"🎉 [{job_name}] Carga concluída: {inserted} inseridos, {updated} atualizados.")
-            log.info(f"⏱️  [{job_name}] Tempo total do job: {time.perf_counter()-t_job0:.2f}s")
-            
-            return job_name, inserted, updated
-
+                return self._append_to_db(df, table, schema)
         except Exception as e:
-            log.error(f"❌ [{job_name}] Falha na carga: {e}", exc_info=True)
-            self.log_etl_error(process_name=job_name, message=str(e))
-            raise
+            raise DataLoadError(f"Falha na carga para a tabela '{table}'.") from e
+
+    def _append_to_db(self, df: pd.DataFrame, table_name: str, schema: Optional[str]) -> Tuple[int, int]:
+        df.to_sql(
+            table_name, con=self.engine, schema=schema, if_exists=self.config.ingest_if_exists,
+            index=False, chunksize=self.config.ingest_chunksize, method=self.config.ingest_method
+        )
+        return len(df), 0
+
+    def _merge_into_mysql(self, df: pd.DataFrame, table_name: str, key_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str], job_name: str) -> Tuple[int, int]:
+        temp_table_name = f"temp_{job_name.lower().replace(' ', '_')}_{int(time.time())}"
+        with self.engine.connect() as conn:
+            try:
+                with conn.begin() as transaction:
+                    df_coerced = self._coerce_df_types_from_db_schema(df, table_name, schema, conn, job_name)
+                    df_coerced.to_sql(temp_table_name, conn, if_exists='replace', index=False)
+                    
+                    update_sql = self._build_mysql_update_statement(table_name, temp_table_name, key_cols, df.columns, compare_cols, schema)
+                    result_update = conn.execute(text(update_sql))
+                    
+                    insert_sql = self._build_mysql_insert_statement(table_name, temp_table_name, key_cols, df.columns, schema)
+                    result_insert = conn.execute(text(insert_sql))
+                    
+                    return result_insert.rowcount, result_update.rowcount
+            finally:
+                conn.execute(text(f"DROP TABLE IF EXISTS `{temp_table_name}`;"))
+
+    def _execute_sql_script(self, script_content: str) -> None:
+        script_content = re.sub(r'--.*?\n', '', script_content)
+        script_content = re.sub(r'/\*.*?\*/', '', script_content, flags=re.DOTALL)
+        statements = re.split(r'DELIMITER\s+([^\s]+)', script_content, flags=re.IGNORECASE)
+        current_delimiter = ';'
+        with self.engine.connect() as conn, conn.begin():
+            commands = [cmd.strip() for cmd in statements[0].split(current_delimiter) if cmd.strip()]
+            for cmd in commands:
+                conn.execute(text(cmd))
+            for i in range(1, len(statements), 2):
+                current_delimiter = statements[i]
+                sql_block = statements[i+1]
+                commands = [cmd.strip() for cmd in sql_block.split(current_delimiter) if cmd.strip()]
+                for cmd in commands:
+                    conn.execute(text(cmd))
+
+    def _build_mysql_update_statement(self, table: str, temp_table: str, keys: List[str], all_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> str:
+        target = f"`{schema}`.`{table}`" if schema else f"`{table}`"
+        join = " AND ".join([f"dw.`{k}` = tmp.`{k}`" for k in keys])
+        cols_to_compare = compare_cols if compare_cols is not None else [c for c in all_cols if c not in keys]
+        if not cols_to_compare:
+            return "SELECT 0; -- No columns to compare, skipping update"
+        update_set = ", ".join([f"dw.`{c}` = tmp.`{c}`" for c in cols_to_compare])
+        where_diff = " OR ".join([f"NOT (dw.`{c}` <=> tmp.`{c}`)" for c in cols_to_compare])
+        return f"UPDATE {target} dw JOIN `{temp_table}` tmp ON {join} SET {update_set} WHERE {where_diff};"
+
+    def _build_mysql_insert_statement(self, table: str, temp_table: str, keys: List[str], all_cols: List[str], schema: Optional[str]) -> str:
+        target = f"`{schema}`.`{table}`" if schema else f"`{table}`"
+        join = " AND ".join([f"dw.`{k}` = tmp.`{k}`" for k in keys])
+        cols_to_select = ", ".join([f"tmp.`{c}`" for c in all_cols])
+        cols_to_insert = ", ".join([f"`{c}`" for c in all_cols])
+        return f"""
+            INSERT INTO {target} ({cols_to_insert})
+            SELECT {cols_to_select} FROM `{temp_table}` tmp
+            LEFT JOIN {target} dw ON {join}
+            WHERE dw.`{keys[0]}` IS NULL;
+        """
+
+    def _coerce_df_types_from_db_schema(self, df: pd.DataFrame, table_name: str, schema: Optional[str], conn: Connection, job_name: str) -> pd.DataFrame:
+        df_coerced = df.copy()
+        try:
+            inspector = inspect(conn)
+            columns_info = {c['name']: str(c['type']).lower() for c in inspector.get_columns(table_name, schema=schema)}
+            for col, col_type in columns_info.items():
+                if col in df_coerced.columns:
+                    series = df_coerced[col]
+                    if 'int' in col_type:
+                        df_coerced[col] = pd.to_numeric(series, errors='coerce').astype('Int64')
+                    elif 'datetime' in col_type or 'timestamp' in col_type:
+                        df_coerced[col] = pd.to_datetime(series, errors='coerce')
+                    elif any(t in col_type for t in ["decimal", "float", "double", "numeric"]):
+                        df_coerced[col] = pd.to_numeric(series, errors='coerce')
+                    elif 'char' in col_type or 'text' in col_type:
+                        df_coerced[col] = series.astype(str).replace('nan', '')
+        except Exception as e:
+            self.log.warning(f"[{job_name}] Não foi possível inspecionar a tabela '{table_name}'. Prosseguindo com tipos inferidos. Erro: {e}")
+        return df_coerced
+
+    def _get_effective_keys(self, job_config: Any, mapping_spec: Any) -> List[str]:
+        keys = getattr(mapping_spec, "key_cols", [])
+        return [keys] if isinstance(keys, str) else keys

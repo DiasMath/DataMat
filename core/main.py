@@ -5,349 +5,233 @@ import re
 import time
 import logging
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse
 
-import pandas as pd
-import pandera as pa
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from core.datamat import DataMat
+from core.datamat import DataMat, DataMatConfig
+from core.errors.exceptions import DataMatError
 from core.adapters.file_adapter import FileSourceAdapter
 from core.adapters.api_adapter import APISourceAdapter
 from core.adapters.db_adapter import DatabaseSourceAdapter
 
-# Configuração de log para exibir apenas a mensagem, conforme solicitado.
 logging.basicConfig(
     level=logging.INFO,
-    format="%(message)s"
+    format="%(message)s",
+    handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("DataMatOrchestrator")
+log = logging.getLogger("Orchestrator")
 
 
-# =========================
-# ====== UTIL .ENV ========
-# =========================
-def _load_env_file(env_path: Path, *, required: bool = False, override: bool = True) -> None:
-    if not env_path.exists():
-        if required:
-            raise FileNotFoundError(f".env não encontrado: {env_path}")
-        return
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(env_path, override=override)
-    except Exception:
-        for raw in env_path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            os.environ[k.strip()] = v.strip().strip('"').strip("'")
+# ===================================================================
+# Módulo de Configuração
+# ===================================================================
 
-
-def load_project_and_tenant_env(client_id: Optional[str]) -> None:
-    _load_env_file(Path(".env"), required=False, override=True)
-    if client_id:
-        tenant_env = Path("tenants") / client_id / "config" / ".env"
-        _load_env_file(tenant_env, required=True, override=True)
-
-
-# =========================
-# === PLACEHOLDER HELPER ===
-# =========================
 _VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
-def expand_placeholders(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    def repl(m: re.Match) -> str:
-        var = m.group(1)
-        return os.getenv(var, m.group(0))
-    return _VAR_PATTERN.sub(repl, value)
-
-def _auto(x: str):
-    s = str(x).strip()
-    low = s.lower()
-    if low in ("1","true","t","yes","y","on"): return True
-    if low in ("0","false","f","no","n","off"): return False
+def _load_env_file(env_path: Path):
+    if not env_path.exists(): return
     try:
-        return int(s)
-    except Exception:
-        try:
-            return float(s)
-        except Exception:
-            return s
+        from dotenv import load_dotenv
+        load_dotenv(env_path, override=True)
+    except ImportError:
+        log.warning("Biblioteca 'python-dotenv' não instalada. Carregando .env manualmente.")
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ[key.strip()] = value.strip().strip('"\'')
 
-# =========================
-# === ENGINE FACTORY ======
-# =========================
+def load_environments(client_id: Optional[str]):
+    _load_env_file(Path(".env"))
+    if client_id:
+        client_env_path = Path("tenants") / client_id / "config" / ".env"
+        if not client_env_path.exists():
+            raise FileNotFoundError(f"Arquivo de configuração do cliente não encontrado: {client_env_path}")
+        _load_env_file(client_env_path)
+
+def expand_placeholders(value: Any) -> Any:
+    if not isinstance(value, str): return value
+    return _VAR_PATTERN.sub(lambda m: os.getenv(m.group(1), m.group(0)), value)
+
+
+# ===================================================================
+# Módulo de Fábricas (Factories)
+# ===================================================================
+
 _engine_cache: Dict[str, Engine] = {}
 
-def make_engine_for_db(db_name: str) -> Engine:
+def get_engine(db_name_var: str) -> Engine:
+    db_name = os.getenv(db_name_var, db_name_var)
     if db_name in _engine_cache:
         return _engine_cache[db_name]
-
-    tmpl = os.getenv("DB_URL")
-    if not tmpl:
-        raise RuntimeError("DB_URL não definido no .env (ex.: mysql+pymysql://user:pass@host:3306/{db}?charset=utf8mb4)")
-    if "{db}" not in tmpl:
-        raise RuntimeError("DB_URL não contém o placeholder {db}. Ex.: .../{db}?charset=utf8mb4")
-
-    url = tmpl.format(db=db_name)
-
-    def _get_int(name: str, default: Optional[int] = None) -> Optional[int]:
-        v = os.getenv(name)
-        try:
-            return int(v) if v not in (None, "") else default
-        except Exception:
-            return default
-
-    echo = os.getenv("DB_ECHO", "0").strip().lower() in ("1", "true", "t", "yes", "y", "on")
-
-    pool_kwargs: Dict[str, Any] = {}
-    if (ps := _get_int("DB_POOL_SIZE")) is not None: pool_kwargs["pool_size"] = ps
-    if (mo := _get_int("DB_MAX_OVERFLOW")) is not None: pool_kwargs["max_overflow"] = mo
-    if (pr := _get_int("DB_POOL_RECYCLE")) is not None: pool_kwargs["pool_recycle"] = pr
-    if (pt := _get_int("DB_POOL_TIMEOUT")) is not None: pool_kwargs["pool_timeout"] = pt
-
-    connect_args: Dict[str, Any] = {}
-    for k, v in os.environ.items():
-        if k.startswith("DB_CONNECT_"):
-            kk = k[len("DB_CONNECT_"):].lower()
-            connect_args[kk] = _auto(v)
-
-    if url.startswith("mysql"):
-        connect_args.setdefault("local_infile", True)
-
-    engine = create_engine(
-        url,
-        echo=echo,
-        future=True,
-        pool_pre_ping=True,
-        connect_args=connect_args,
-        **pool_kwargs,
-    )
+    url_template = os.getenv("DB_URL")
+    if not url_template or "{db}" not in url_template:
+        raise RuntimeError("Variável de ambiente DB_URL com placeholder {db} não está definida.")
+    engine = create_engine(url_template.format(db=db_name), pool_pre_ping=True)
     _engine_cache[db_name] = engine
     return engine
 
-
-# =========================
-# ===== BUILD ADAPTER =====
-# =========================
-def build_adapter(job: Any, *, row_limit: Optional[int] = None) -> Any:
-    jtype = getattr(job, "type", None)
-    job_name = getattr(job, "name", "desconhecido")
-    log.info(f"[{job_name}] Construindo adapter do tipo '{jtype}'...")
-
-    if jtype == "file":
-        file_path = expand_placeholders(job.file)
-        return FileSourceAdapter(file_path, sheet=job.sheet, header=job.header)
-
-    if jtype == "api":
-        endpoint_path = expand_placeholders(job.endpoint)
-        
-        if endpoint_path.lower().startswith(("http://", "https://")):
-            final_endpoint = endpoint_path
-        else:
-            base_url = os.getenv("API_BASE_URL", "").rstrip('/')
-            if not base_url:
-                raise RuntimeError(
-                    f"Job '{job.name}' usa endpoint relativo '{endpoint_path}', "
-                    "mas API_BASE_URL não está definida no .env."
-                )
-            final_endpoint = f"{base_url}/{endpoint_path.lstrip('/')}"
-            
+def build_adapter_for_job(job: Any, preview_rows: Optional[int]) -> Any:
+    job_type = getattr(job, "type")
+    log.info(f"[{job.name}] Construindo adapter do tipo '{job_type}'...")
+    if job_type == "file":
+        return FileSourceAdapter(file_path=expand_placeholders(job.file), sheet=job.sheet)
+    if job_type == "api":
         return APISourceAdapter(
-            final_endpoint,
+            endpoint=expand_placeholders(job.endpoint),
             paging=getattr(job, "paging", None),
             auth=getattr(job, "auth", None),
             params=getattr(job, "params", None),
             enrich_by_id=getattr(job, "enrich_by_id", False),
             enrichment_strategy=getattr(job, "enrichment_strategy", 'concurrent'),
-            row_limit=row_limit,
+            row_limit=preview_rows,
             data_path=getattr(job, "data_path", None),
-            requests_per_minute=getattr(job, "requests_per_minute", None),
+            detail_data_path=getattr(job, "detail_data_path", None),
+            requests_per_minute=getattr(job, "requests_per_minute", 60),
             enrichment_requests_per_minute=getattr(job, "enrichment_requests_per_minute", None)
         )
+    if job_type == "db":
+        return DatabaseSourceAdapter(source_url=expand_placeholders(job.source_url), query=expand_placeholders(job.query))
+    raise ValueError(f"Tipo de job desconhecido: '{job_type}'")
 
-    if jtype == "db":
-        source_url = expand_placeholders(job.source_url)
-        query = expand_placeholders(job.query)
-        return DatabaseSourceAdapter(source_url, query, params=getattr(job, "params", None))
+def build_datamat_config() -> DataMatConfig:
+    return DataMatConfig(
+        ingest_if_exists=os.getenv("INGEST_IF_EXISTS", "append"),
+        ingest_chunksize=int(os.getenv("INGEST_CHUNKSIZE", "2000")),
+        ingest_method=os.getenv("INGEST_METHOD", "multi"),
+        etl_log_table=os.getenv("ETL_LOG_TABLE", "tbInfra_LogCarga")
+    )
 
-    raise ValueError(f"Tipo de job desconhecido: {jtype}")
 
+# ===================================================================
+# Módulo de Execução (Runner)
+# ===================================================================
 
-# =========================
-# ===== RUN A JOB =========
-# =========================
-def run_job(dm: DataMat, job: Any, mapping_spec: Optional[Any], *, preview_only: bool = False, export_path: Optional[Path] = None, export_rows: Optional[int] = None) -> Tuple[str, int, int]:
-    """Prepara os objetos e delega a execução para o DataMat ou para o modo de depuração."""
-    adapter = build_adapter(job, row_limit=export_rows if (preview_only or export_path) else None)
-
-    if preview_only or export_path:
-        log.info(f"[{job.name}] Executando em modo de depuração (preview/export)...")
+def run_single_job(dm: DataMat, job: Any, mappings: Dict, preview: bool, export_path: Optional[Path], export_rows: Optional[int]):
+    adapter = build_adapter_for_job(job, export_rows)
+    if preview or export_path:
+        log.info(f"[{job.name}] Executando em modo de depuração...")
         df = adapter.extract()
-        
-        # Opcional: Adicionar lógica de preparação aqui se o preview/export precisar de dados limpos
-        
         if export_path:
-            log.info(f"📦 [{job.name}] [MODO EXPORT] Salvando {len(df)} linhas em: {export_path}")
             export_path.parent.mkdir(parents=True, exist_ok=True)
             df.to_excel(export_path, index=False)
-        
-        if preview_only:
-            print("\n" + "="*80)
-            print(f"🔍 [MODO PREVIEW] Job: {job.name}")
-            print(f"ℹ️  Total de linhas extraídas: {len(df)}")
-            print(f"📋 Amostra dos dados:\n{df.head(export_rows or 5).to_markdown(index=False)}")
-            print("="*80 + "\n")
-            
+            log.info(f"📦 [{job.name}] Dados exportados para: {export_path}")
+        if preview:
+            print(f"\n--- PREVIEW: {job.name} ({len(df)} linhas) ---\n{df.head(export_rows or 5).to_markdown(index=False)}\n")
         return job.name, 0, 0
-    
-    # Delega a execução principal para a classe DataMat
-    return dm.run_etl_job(adapter, job, mapping_spec)
+    return dm.run_etl_job(adapter, job, mappings.get(job.map_id))
 
-
-# =========================
-# ===== RUN CLIENT ========
-# =========================
-def run_client(
-    client_id: str, workers_per_client: int = 2, *,
-    job_name_filter: Optional[str] = None,
-    preview_only: bool = False,
-    export_path: Optional[str] = None,
-    export_rows: Optional[int] = None
-) -> Tuple[int, List]:
-    log.info(f"Iniciando execução para o cliente: {client_id}.")
-    load_project_and_tenant_env(client_id)
+def run_client_pipeline(client_id: str, job_filter: Optional[str], preview: bool, export_path: Optional[str], export_rows: Optional[int]):
+    log.info(f"Iniciando pipeline para o cliente: {client_id}.")
+    load_environments(client_id)
 
     jobs_mod = importlib.import_module(f"tenants.{client_id}.pipelines.jobs")
     mappings_mod = importlib.import_module(f"tenants.{client_id}.pipelines.mappings")
+    jobs_list = [j for j in getattr(jobs_mod, "JOBS") if not job_filter or j.name == job_filter]
+    if job_filter and not jobs_list:
+        raise ValueError(f"Job '{job_filter}' não encontrado.")
 
-    JOBS = getattr(jobs_mod, "JOBS")
-    PROCS = getattr(jobs_mod, "PROCS", [])
-    MAPPINGS = getattr(mappings_mod, "MAPPINGS")
+    dm_config = build_datamat_config()
+    dm_instances: Dict[str, DataMat] = {}
+    
+    def get_dm_instance(db_var: str) -> DataMat:
+        if db_var not in dm_instances:
+            dm_instances[db_var] = DataMat(get_engine(db_var), dm_config)
+        return dm_instances[db_var]
 
-    if job_name_filter:
-        JOBS = [j for j in JOBS if j.name == job_name_filter]
-        if not JOBS:
-            raise ValueError(f"Job '{job_name_filter}' não encontrado.")
-
-    final_export_path = Path("tenants") / client_id / "data" / export_path if export_path else None
-
-    ingest_cfg = {
-        "schema": os.getenv("INGEST_SCHEMA"),
-        "if_exists": os.getenv("INGEST_IF_EXISTS", "append"),
-        "chunksize": int(os.getenv("INGEST_CHUNKSIZE", "2000")),
-        "method": os.getenv("INGEST_METHOD", "multi")
-    }
-    dm_cache: Dict[str, DataMat] = {}
-
-    def get_dm_for_db(job: Any) -> DataMat:
-        db_name = os.getenv(job.db_name, job.db_name)
-        if db_name not in dm_cache:
-            dm_cache[db_name] = DataMat(make_engine_for_db(db_name), ingest_cfg)
-        return dm_cache[db_name]
+    dw_db_var = os.getenv("DB_DW_NAME")
+    if not dw_db_var:
+        raise RuntimeError("DB_DW_NAME não definido no .env para operações de log e DW.")
+    dm_dw_logger = get_dm_instance(dw_db_var)
 
     stg_results: List[Tuple[str, int, int]] = []
-    
-    with ThreadPoolExecutor(max_workers=workers_per_client) as pool:
-        future_to_job = {
-            pool.submit(run_job, get_dm_for_db(job), job, MAPPINGS.get(job.map_id),
-                        preview_only=preview_only, export_path=final_export_path, export_rows=export_rows): job
-            for job in JOBS
-        }
 
-        for fut in as_completed(future_to_job):
-            job_failed = future_to_job[fut]
+    # Verifica o "interruptor" de paralelismo no .env
+    parallel_enabled = os.getenv("ETL_PARALLEL_EXECUTION", "true").lower() in ("true", "1", "yes", "on")
+
+    if parallel_enabled and not job_filter and not preview and not export_path:
+        log.info("🚀 Executando jobs de STG em modo PARALELO.")
+        with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "2"))) as pool:
+            f_path = Path(f"tenants/{client_id}/data/{export_path}") if export_path else None
+            futures = {
+                pool.submit(run_single_job, get_dm_instance(job.db_name), job, getattr(mappings_mod, "MAPPINGS"), preview, f_path, export_rows): job
+                for job in jobs_list
+            }
+            for future in as_completed(futures):
+                job = futures[future]
+                try:
+                    stg_results.append(future.result())
+                except Exception as e:
+                    log.error(f"📦 [STG] FALHA CRÍTICA no job '{job.name}': {e}", exc_info=True)
+                    dm_dw_logger.log_etl_error(process_name=job.name, message=str(e))
+                    stg_results.append((job.name, -1, -1))
+    else:
+        log.info("🐌 Executando jobs de STG em modo SEQUENCIAL (um a um).")
+        f_path = Path(f"tenants/{client_id}/data/{export_path}") if export_path else None
+        for job in jobs_list:
             try:
-                name, inserted, updated = fut.result()
-                if not (preview_only or export_path):
-                    log.info(f"📦 [STG] Job '{name}': {inserted} inseridos, {updated} atualizados.")
-                stg_results.append((name, inserted, updated))
+                result = run_single_job(get_dm_instance(job.db_name), job, getattr(mappings_mod, "MAPPINGS"), preview, f_path, export_rows)
+                stg_results.append(result)
             except Exception as e:
-                log.error(f"📦 [STG] FALHA CRÍTICA no job '{job_failed.name}': {e}", exc_info=True)
-                stg_results.append((job_failed.name, -1, -1))
+                log.error(f"📦 [STG] FALHA CRÍTICA no job '{job.name}': {e}", exc_info=True)
+                dm_dw_logger.log_etl_error(process_name=job.name, message=str(e))
+                stg_results.append((job.name, -1, -1))
 
-    if preview_only or export_path or job_name_filter:
+    if preview or export_path:
         log.info("✅ Execução em modo de depuração/filtro concluída.")
-        return 0, []
+        return
 
-    log.info(f"🔄 [{client_id}] Sincronizando objetos do DW (Views e Procedures)...")
-    tenant_dw_path = Path("tenants") / client_id / "dw"
-    if tenant_dw_path.is_dir():
-        sql_files = sorted(list(tenant_dw_path.glob('**/*.sql')))
-        
-        if sql_files:
-            dw_db_name = os.getenv("DB_DW_NAME")
-            if not dw_db_name: raise RuntimeError("DB_DW_NAME não definido no .env")
-            dm_dw = dm_cache.get(dw_db_name) or DataMat(make_engine_for_db(dw_db_name), ingest_cfg)
-
-            for sql_file in sql_files:
-                log.info(f"   -> Aplicando {sql_file.relative_to(tenant_dw_path)}...")
-                dm_dw.execute_sql_script(sql_file.read_text(encoding="utf-8"))
-            log.info(f"✅ [{client_id}] Objetos do DW sincronizados.")
-
-    dw_inserted, dw_updated = 0, 0
-    for i, proc_group in enumerate(PROCS):
-        log.info(f"▶️  [DW] Executando GRUPO {i+1} de procedures...")
-        for proc_info in proc_group:
-            proc_name = "desconhecida"
-            try:
-                dbn = os.getenv(proc_info.get("db_name", ""), "")
-                dm_dw = dm_cache.get(dbn) or DataMat(make_engine_for_db(dbn), ingest_cfg)
-                proc_name = proc_info["sql"]
-                log.info(f"   -> Executando procedure: {proc_name}...")
-                
-                with dm_dw.engine.connect() as conn:
-                    with conn.begin():
-                        conn.execute(text(f"{proc_name}(@p_inserted_rows, @p_updated_rows);"))
-                        result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
-                        inserted, updated = (int(result[0]), int(result[1])) if result and result[0] is not None else (0, 0)
-                
-                log.info(f"   -> ✅ {proc_name}: {inserted} linhas inseridas, {updated} linhas atualizadas.")
-                dw_inserted += inserted
-                dw_updated += updated
-            except Exception as e:
-                log.error(f"   -> ❌ FALHA na procedure: {proc_name} - {e}", exc_info=True)
-                if 'dm_dw' in locals(): dm_dw.log_etl_error(process_name=proc_name, message=str(e))
-
-    stg_inserted = sum(i for _, i, _ in stg_results if i != -1)
-    stg_updated = sum(u for _, _, u in stg_results if u != -1)
+    dw_objects_list = getattr(jobs_mod, "DW_OBJECTS", [])
+    if dw_objects_list:
+        dw_base_path = Path(f"tenants/{client_id}/dw")
+        # O synchronize_dw_objects agora é chamado na instância do DW Logger, que é a principal
+        dm_dw_logger.synchronize_dw_objects(dw_base_path, dw_objects_list)
     
-    log.info("\n" + "="*50)
-    log.info(f"📊 RESUMO FINAL DA CARGA PARA O CLIENTE: {client_id}")
-    log.info("="*50)
-    log.info(f"STG - Total Inserido:   {stg_inserted}")
-    log.info(f"STG - Total Atualizado: {stg_updated}")
-    log.info(f"DW  - Total Inserido:   {dw_inserted}")
-    log.info(f"DW  - Total Atualizado: {dw_updated}")
-    log.info("="*50 + "\n")
+    proc_results: List[Tuple[int, int]] = []
+    for proc_group in getattr(jobs_mod, "PROCS", []):
+        log.info("▶️  [PROC] Executando grupo de procedures...")
+        for proc_info in proc_group:
+            target_db_var = proc_info.get("db_name")
+            if not target_db_var:
+                raise ValueError(f"Procedure '{proc_info['sql']}' não tem um 'db_name' definido.")
+            
+            dm_instance = get_dm_instance(target_db_var)
+            proc_results.append(dm_instance.run_dw_procedure(proc_info["sql"]))
 
-    total_geral = stg_inserted + stg_updated + dw_inserted + dw_updated
-    return total_geral, stg_results
+    DataMat.log_summary(client_id, stg_results, proc_results)
+
+
+# ===================================================================
+# Ponto de Entrada da Aplicação
+# ===================================================================
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Orquestrador de ETL para clientes.")
+    parser = argparse.ArgumentParser(description="Orquestrador de ETL para DataMat.")
     parser.add_argument("client_id", help="ID do cliente a ser processado.")
-    parser.add_argument("--job", dest="job_name", help="Executa apenas um job específico.")
+    parser.add_argument("--job", help="Executa apenas um job específico.")
     parser.add_argument("--preview", action="store_true", help="Ativa o modo preview (requer --job).")
-    parser.add_argument("--export", dest="export_path", help="Ativa o modo de exportação para um arquivo XLSX (requer --job).")
-    parser.add_argument("--rows", dest="export_rows", type=int, help="Limita o número de linhas para --preview e --export.")
-    
+    parser.add_argument("--export", help="Ativa o modo de exportação para um arquivo XLSX (requer --job).")
+    parser.add_argument("--rows", type=int, help="Limita o número de linhas para --preview e --export.")
     args = parser.parse_args()
-    
-    if (args.preview or args.export_path) and not args.job_name:
+
+    if (args.preview or args.export) and not args.job:
         parser.error("--preview e --export requerem que --job seja especificado.")
 
-    load_project_and_tenant_env(client_id=None) # Carrega .env global
-    run_client(
-        client_id=args.client_id,
-        job_name_filter=args.job_name,
-        preview_only=args.preview,
-        export_path=args.export_path,
-        export_rows=args.export_rows
-    )
+    try:
+        t_start = time.perf_counter()
+        run_client_pipeline(
+            client_id=args.client_id,
+            job_filter=args.job,
+            preview=args.preview,
+            export_path=args.export,
+            export_rows=args.rows
+        )
+        log.info(f"🏁 Pipeline para '{args.client_id}' finalizado em {time.perf_counter() - t_start:.2f} segundos.")
+    except (DataMatError, ValueError, FileNotFoundError) as e:
+        log.error(f"\n❌ ERRO CONTROLADO: A execução falhou. Causa: {e}")
+    except Exception as e:
+        log.error(f"\n❌ ERRO INESPERADO: A execução foi abortada. Causa: {e}", exc_info=True)

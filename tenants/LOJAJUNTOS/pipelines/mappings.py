@@ -1,51 +1,59 @@
-from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
-import pandera.pandas as pa
+from typing import Dict, List, Optional
+import pandera as pa
 
-@dataclass(frozen=True)
+@dataclass
 class MappingSpec:
-    # De-para das colunas da origem para o destino
+    """
+    Define a estrutura de um mapeamento de dados.
+    Este objeto contém todas as regras para traduzir, validar e carregar
+    os dados de um job específico na Staging Area.
+    """
+    # Dicionário DE-PARA: {"Nome da Coluna na Origem": "Nome da Coluna no Destino"}
     src_to_tgt: Dict[str, str]
-    # Nomes das colunas de destino que são obrigatórias
-    required: Optional[List[str]] = None
-    # Colunas que formam a chave para o merge (UPSERT)
-    key_cols: Optional[List[str]] = None
-    # Colunas a serem comparadas no merge; se None, compara todas as não-chave
+
+    # Lista de colunas que formam a chave primária de negócio.
+    # Essencial para a lógica de MERGE (UPSERT) e deduplicação.
+    key_cols: List[str]
+
+    # (Opcional) Lista de colunas a serem comparadas para detectar atualizações no MERGE.
+    # Se None, todas as colunas (exceto as key_cols) são comparadas.
+    # Útil para otimizar a performance, ignorando colunas que não devem ser atualizadas.
     compare_cols: Optional[List[str]] = None
-    # Dicionário com as regras de validação do Pandera para cada coluna de DESTINO
-    validation_rules: Dict[str, Any] = None
+
+    # (Opcional) Regras de validação de dados usando a biblioteca Pandera.
+    # O ETL falhará se os dados não passarem nessas validações.
+    validation_rules: Dict[str, Dict] = field(default_factory=dict)
 
 
-    # {"checks": [pa.Check.isin(["A", "I"])]}
+# ===================================================================
+# MAPPINGS DEFINITIONS
+# ===================================================================
 
-# ==============================================================================
-#  CATÁLOGO DE MAPEAMENTOS E VALIDAÇÕES
-# ==============================================================================
-MAPPINGS: Dict[str, MappingSpec] = {
+# Dicionário principal que o orquestrador (main.py) irá consumir.
+# A chave de cada entrada (ex: "clientes_api") deve corresponder ao `map_id`
+# definido no arquivo `jobs.py`.
+
+MAPPINGS = {
 
 # ===================== CARGA STAGE ===================== #
 
-    # =========== DRE =========== #
+    # =========== CATEGORIAS FINANCEIRAS =========== #
     "map_bling_categorias_financeiras": MappingSpec(
         src_to_tgt={
             "id"                : "CodigoCategoriaFinanceira",
-            "idCategoriaPai"    : "IdCategoriaPai",
+            "idCategoriaPai"    : "CodCategoriaPai",
             "descricao"         : "Descricao",
             "tipo"              : "Tipo",
             "situacao"          : "Situacao",
         },
         key_cols=["CodigoCategoriaFinanceira"],   
         validation_rules={
-            "CodigoCategoriaFinanceira" : {"dtype": str, "nullable": False, "unique": True},
-            "IdCategoriaPai"            : {"dtype": str, "nullable": True},
-            "Descricao"                 : {"dtype": str, "nullable": False},
-            # "Descricao"                 : {"dtype": str, "nullable": False, "unique": True},
-            "Tipo"                      : {"dtype": str},
-            "Situacao"                  : {"dtype": str},
+            "CodigoCategoriaFinanceira" : {"nullable": False, "unique": True},
         }               
     ),
 
+    # =========== CONTAS =========== #
     "map_bling_contas_pagar": MappingSpec(
         src_to_tgt={
             "id"                    : "CodigoLancamento",
@@ -67,8 +75,7 @@ MAPPINGS: Dict[str, MappingSpec] = {
         },
         key_cols=["CodigoLancamento"],
         validation_rules={
-            "CodigoLancamento"          : {"nullable": False, "unique": True},
-        }               
+            "CodigoLancamento"          : {"nullable": False, "unique": True}}               
     ),
 
     "map_bling_contas_receber": MappingSpec(
@@ -98,7 +105,7 @@ MAPPINGS: Dict[str, MappingSpec] = {
         },
         key_cols=["CodigoLancamento"],   
         validation_rules={
-            "CodigoLancamento"          : {"dtype": str, "nullable": False, "unique": True},
+            "CodigoLancamento"          : {"nullable": False, "unique": True},
         }               
     ),
 
@@ -110,10 +117,11 @@ MAPPINGS: Dict[str, MappingSpec] = {
         },
         key_cols=["CodigoContaContabil"],   
         validation_rules={
-            "CodigoContaContabil"          : {"dtype": str, "nullable": False, "unique": True},
+            "CodigoContaContabil"          : {"nullable": False, "unique": True},
         }               
     ),
 
+    # =========== FORMAS PAGAMENTO =========== #
     "map_bling_formas_pagamento": MappingSpec(
         src_to_tgt={
             "id"                : "CodigoFormaPagamento",
@@ -134,10 +142,11 @@ MAPPINGS: Dict[str, MappingSpec] = {
         },
         key_cols=["CodigoFormaPagamento"],   
         validation_rules={
-            "CodigoFormaPagamento"          : {"dtype": str, "nullable": False, "unique": True},
+            "CodigoFormaPagamento"          : {"nullable": False, "unique": True},
         }               
     ),
-    
+
+    # =========== NOTA FISCAL =========== #
     "map_bling_nota_fiscal": MappingSpec(
         src_to_tgt={
             "id"                            : "CodigoNotaFiscal",
@@ -214,53 +223,164 @@ MAPPINGS: Dict[str, MappingSpec] = {
         }               
     ),
 
-    #TODO - FInalizar
+    # =========== PRODUTOS =========== #
     "map_bling_produtos": MappingSpec(
         src_to_tgt={
-            "id"                : "CodigoProduto",
-            "nome"         : "Descricao",
-            "codigo"     : "TipoPagamento",
-            "preco"          : "Situacao",
-            "estoque.minimo"              : "Fixa",
-            "estoque.maximo"              : "Fixa",
-            "estoque.crossdocking"              : "Fixa",
-            "estoque.localizacao"              : "Fixa",
-            "estoque.saldoVirtualTotal"              : "Fixa",
-            "tipo"            : "Padrao",
-            "situacao"        : "Finalidade",
-            "formato"             : "Juros",
-            "descricaoCurta"             : "Multa",
-            "dataValidade"          : "Condicao",
-            "unidade"           : "Destino",
-            "pesoLiquido"  : "UtilizaDiasUteis",
-            "pesoBruto"    : "TaxaAliquota",
-            "volumes"       : "TaxaValor",
-            "itensPorCaixa"       : "TaxaPrazo",
-            "gtin"       : "TaxaPrazo",
-            "gtinEmbalagem"       : "TaxaPrazo",
-            "tipoProducao"       : "TaxaPrazo",
-            "condicao"       : "TaxaPrazo",
-            "freteGratis"       : "TaxaPrazo",
-            "marca"       : "TaxaPrazo",
-            "descricaoComplementar"       : "TaxaPrazo",
-            "observacoes"       : "TaxaPrazo",
-            "categoria.id"       : "TaxaPrazo",
+            "id"                        : "CodigoProduto",
+            "nome"                      : "Nome",
+            "codigo"                    : "CodigoSKU",
+            "preco"                     : "Preco",
+            "estoque.minimo"            : "EstoqueMinimo",
+            "estoque.maximo"            : "EstoqueMaximo",
+            "estoque.crossdocking"      : "EstoqueCrossdocking",
+            "estoque.localizacao"       : "EstoqueLocalizacao",
+            "estoque.saldoVirtualTotal" : "EstoqueSaldoVirtualTotal",
+            "tipo"                      : "Tipo",
+            "situacao"                  : "Situacao",
+            "formato"                   : "Formato",
+            "descricaoCurta"            : "DescricaoCurta",
+            "dataValidade"              : "DataValidade",
+            "unidade"                   : "Unidade",
+            "pesoLiquido"               : "PesoLiquido",
+            "pesoBruto"                 : "PesoBruto",
+            "volumes"                   : "Volumes",
+            "itensPorCaixa"             : "ItensPorCaixa",
+            "gtin"                      : "Gtin",
+            "gtinEmbalagem"             : "GtinEmbalagem",
+            "tipoProducao"              : "TipoProducao",
+            "condicao"                  : "Condicao",
+            "freteGratis"               : "FreteGratis",
+            "marca"                     : "Marca",
+            "descricaoComplementar"     : "DescricaoComplementar",
+            "observacoes"               : "Observacoes",
+            "categoria.id"              : "CodCategoria",
+            "tributacao.grupoProduto"   : "GrupoProduto",
         },
-        key_cols=["CodigoFormaPagamento"],   
+        key_cols=["CodigoProduto"],   
         validation_rules={
-            "CodigoFormaPagamento"          : {"dtype": str, "nullable": False, "unique": True},
+            "CodigoProduto"          : {"nullable": False, "unique": True},
         }               
     ),
 
+    "map_bling_produto_grupo": MappingSpec(
+        src_to_tgt={
+            "id"                    : "CodigoGrupoProduto",
+            "nome"                  : "Nome",
+            "grupoProdutoPai.id"    : "CodGrupoProdutoPai",
+        },
+        key_cols=["CodigoGrupoProduto"],   
+        validation_rules={
+            "CodigoGrupoProduto"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    "map_bling_produto_categoria": MappingSpec(
+        src_to_tgt={
+            "id"            : "CodigoCategoriaProduto",
+            "descricao"     : "Descricao",
+            "ProdutoPai.id" : "CodCategoriaProdutoPai",
+        },
+        key_cols=["CodigoCategoriaProduto"],   
+        validation_rules={
+            "CodigoCategoriaProduto"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    "map_bling_produto_fornecedor": MappingSpec(
+        src_to_tgt={
+            "id"            : "CodigoProdutoFornecedor",
+            "descricao"     : "Descricao",
+            "codigo"        : "Codigo",
+            "precoCusto"    : "PrecoCusto",
+            "precoCompra"   : "PrecoCompra",
+            "padrao"        : "Padrao",
+            "produto.id"    : "CodProduto",
+            "fornecedor.id" : "CodFornecedor",
+            "garantia"      : "Garantia",
+        },
+        key_cols=["CodigoProdutoFornecedor"],   
+        validation_rules={
+            "CodigoProdutoFornecedor"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    # =========== CONTATO =========== #
+   "map_bling_contato": MappingSpec(
+        src_to_tgt={
+            "id"                            : "CodigoContato",
+            "nome"                          : "Nome",
+            "codigo"                        : "Codigo",
+            "situacao"                      : "Situacao",
+            "numeroDocumento"               : "NumeroDocumento",
+            "telefone"                      : "Telefone",
+            "celular"                       : "Celular",
+            "fantasia"                      : "NomeFantasia",
+            "tipo"                          : "Tipo",
+            "indicadorIe"                   : "IndicadorIe",
+            "ie"                            : "ie",
+            "rg"                            : "rg",
+            "inscricaoMunicipal"            : "InscricaoMunicipal",
+            "orgaoEmissor"                  : "OrgaoEmissor",
+            "email"                         : "Email",
+            "emailNotaFiscal"               : "EmailNotaFiscal",
+            "endereco.geral.endereco"       : "Endereco",
+            "endereco.geral.cep"            : "CEP",
+            "endereco.geral.bairro"         : "Bairro",
+            "endereco.geral.municipio"      : "Municipio",
+            "endereco.geral.uf"             : "UF",
+            "endereco.geral.numero"         : "Numero",
+            "endereco.geral.complemento"    : "Complemento",
+            "tiposContato.id"               : "CodTipoContato",
+        },
+        key_cols=["CodigoContato"],   
+        validation_rules={
+            "CodigoContato"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    "map_bling_tipo_contato": MappingSpec(
+        src_to_tgt={
+            "id"        : "CodigoTipoContato",
+            "descricao" : "Descricao",
+        },
+        key_cols=["CodigoTipoContato"],   
+        validation_rules={
+            "CodigoTipoContato"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
-
-
-
-
+   "map_bling_contato_consumidor_final": MappingSpec(
+        src_to_tgt={
+            "id"                            : "CodigoContato",
+            "nome"                          : "Nome",
+            "codigo"                        : "Codigo",
+            "situacao"                      : "Situacao",
+            "numeroDocumento"               : "NumeroDocumento",
+            "telefone"                      : "Telefone",
+            "celular"                       : "Celular",
+            "fantasia"                      : "NomeFantasia",
+            "tipo"                          : "Tipo",
+            "indicadorIe"                   : "IndicadorIe",
+            "ie"                            : "ie",
+            "rg"                            : "rg",
+            "inscricaoMunicipal"            : "InscricaoMunicipal",
+            "orgaoEmissor"                  : "OrgaoEmissor",
+            "email"                         : "Email",
+            "emailNotaFiscal"               : "EmailNotaFiscal",
+            "endereco.geral.endereco"       : "Endereco",
+            "endereco.geral.cep"            : "CEP",
+            "endereco.geral.bairro"         : "Bairro",
+            "endereco.geral.municipio"      : "Municipio",
+            "endereco.geral.uf"             : "UF",
+            "endereco.geral.numero"         : "Numero",
+            "endereco.geral.complemento"    : "Complemento",
+            "tiposContato.id"               : "CodTipoContato",
+        },
+        key_cols=["CodigoContato"],   
+        validation_rules={
+            "CodigoContato"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
 
 
