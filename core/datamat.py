@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-import pandera as pa
+import pandera.pandas as pa
 from sqlalchemy import text, inspect
 from sqlalchemy.engine import Engine, Connection
 from sqlalchemy.exc import SQLAlchemyError
@@ -164,17 +164,28 @@ class DataMat:
             raise DataExtractionError(f"Falha na extração para o job '{job_name}'.") from e
 
     def _prepare_and_map(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
-        if df.empty: return df
+        if df.empty: 
+            return df
         self.log.info(f"🔧 [{job_name}] Preparando e mapeando dataframe...")
         if not mapping_spec:
-             raise DataMatError(f"map_id '{getattr(job_config, 'map_id', 'N/A')}' não foi encontrado.")
+            raise DataMatError(f"map_id '{getattr(job_config, 'map_id', 'N/A')}' não foi encontrado no mappings.py")
+        
         w = df.copy()
-        if src_cols := list(mapping_spec.src_to_tgt.keys()):
-            w = w[src_cols]
-        if rename_map := mapping_spec.src_to_tgt:
-            w = w.rename(columns=rename_map)
+        
+        expected_src_cols = list(mapping_spec.src_to_tgt.keys())
+        missing_cols = set(expected_src_cols) - set(w.columns)
+        
+        if missing_cols:
+            self.log.warning(f"[{job_name}] As seguintes colunas esperadas no mapping não foram encontradas na fonte: {list(missing_cols)}. Elas serão adicionadas com valores nulos.")
+            for col in missing_cols:
+                w[col] = None # Cria a coluna com valores nulos
+
+        w = w[expected_src_cols]
+        w = w.rename(columns=mapping_spec.src_to_tgt)
+
         for c in w.select_dtypes(include=['object', 'string']).columns:
             w[c] = w[c].str.strip()
+            
         return w
 
     def _deduplicate(self, df: pd.DataFrame, keys: List[str], job_name: str) -> pd.DataFrame:

@@ -38,7 +38,8 @@ class _RateLimiter:
 class APISourceAdapter:
     """
     Adapter para extrair dados de uma fonte API HTTP.
-    Contém a lógica completa para autenticação, paginação, extração e enriquecimento.
+    Implementa uma "Estratégia Adaptativa": executa de forma rápida para APIs
+    estáveis e ativa um modo de consolidação robusto para APIs instáveis.
     """
     def __init__(
         self,
@@ -135,16 +136,20 @@ class APISourceAdapter:
         raise DataExtractionError("Máximo de retentativas atingido.") from last_exc
 
     def _fetch_all_pages(self) -> List[Dict]:
+        """
+        Executa uma única "varredura" completa de todas as páginas da API.
+        """
         all_rows: List[Dict] = []
         params = self._get_first_page_params()
         page_size = params.get(self.paging.get("size_param", "limite"), 100)
         
-        # --- DEPURADOR DE DUPLICATAS ---
-        seen_ids = set()
-        # --- FIM DO DEPURADOR ---
-
-        for page_num in range(1, 1000):
-            if self.row_limit and len(all_rows) >= self.row_limit: break
+        max_pages = int(os.getenv("API_MAX_PAGES", "1000"))
+        consecutive_empty_pages = 0
+        
+        for page_num in range(1, max_pages + 1):
+            if self.row_limit and len(all_rows) >= self.row_limit:
+                log.info(f"Limite de {self.row_limit} linhas atingido. Encerrando.")
+                break
             
             log.info(f"📄 Página {page_num}: GET {self.full_endpoint_url} | params={params}")
 
@@ -163,24 +168,19 @@ class APISourceAdapter:
                 break
 
             num_records = len(page_data)
-            
-            # --- LÓGICA DO DEPURADOR DE DUPLICATAS ---
-            newly_seen_count = 0
-            for record in page_data:
-                record_id = record.get("id")
-                if record_id is not None:
-                    if record_id in seen_ids:
-                        log.warning(f"   -> 🚨 DUPLICATA ENCONTRADA! ID '{record_id}' da página {page_num} já foi visto anteriormente.")
-                    else:
-                        seen_ids.add(record_id)
-                        newly_seen_count += 1
-            # --- FIM DA LÓGICA DO DEPURADOR ---
-
             all_rows.extend(page_data)
-            log.info(f"   -> Recebidos: {num_records} registos ({newly_seen_count} novos IDs) | Total acumulado: {len(all_rows)}")
+            log.info(f"   -> Recebidos: {num_records} registos | Total acumulado na passagem: {len(all_rows)}")
             
+            if num_records == 0:
+                consecutive_empty_pages += 1
+                if consecutive_empty_pages >= 3:
+                    log.info(f"✅ Encontradas {consecutive_empty_pages} páginas vazias em sequência. Assumindo fim dos dados para esta passagem.")
+                    break
+            else:
+                consecutive_empty_pages = 0
+
             if num_records < page_size:
-                log.info(f"✅ Última página detetada ({num_records} de {page_size} registos). Encerrando paginação.")
+                log.info(f"✅ Última página detetada ({num_records} de {page_size} registos). Encerrando paginação para esta passagem.")
                 break
 
             params = self._get_next_page_params(params)
@@ -227,28 +227,68 @@ class APISourceAdapter:
         return pd.json_normalize(enriched_rows)
 
     def extract(self) -> pd.DataFrame:
+        """
+        REFATORADO com a "Estratégia Adaptativa":
+        1. Executa uma primeira passagem de extração.
+        2. Verifica se há duplicatas.
+        3. Se houver, ativa o modo de consolidação para garantir a completude.
+           Caso contrário, finaliza rapidamente.
+        """
+        log.info("--- Iniciando Passagem de Extração nº 1 (Teste de Confiança) ---")
         all_rows = self._fetch_all_pages()
         if not all_rows:
             return pd.DataFrame()
             
-        df = pd.json_normalize(all_rows)
-        
-        if 'id' in df.columns and df['id'].duplicated().any():
-            log.info(f"🧹 Duplicatas encontradas na extração bruta ({len(df)} registos). Limpando...")
-            df = df.sort_values(by='id', ascending=True, kind='mergesort').reset_index(drop=True)
-            df = df.drop_duplicates(subset=['id'], keep='last').reset_index(drop=True)
-            log.info(f"   -> Limpeza concluída. Restaram {len(df)} registos únicos.")
+        consolidated_df = pd.json_normalize(all_rows)
+
+        # A verificação de integridade
+        if 'id' in consolidated_df.columns and consolidated_df.duplicated(subset=['id']).any():
+            log.warning("🚨 API instável detectada! Ativando modo de consolidação para garantir a captura de todos os dados.")
+            
+            # A partir daqui, a lógica de consolidação é ativada.
+            max_passes = 5
+            for i in range(2, max_passes + 1): # Começa da passagem 2
+                log.info(f"--- Iniciando Passagem de Extração nº {i}/{max_passes} ---")
+                
+                unique_rows_before = consolidated_df.drop_duplicates(subset=['id']).shape[0]
+
+                raw_rows_pass = self._fetch_all_pages()
+                if not raw_rows_pass:
+                    log.warning(f"Passagem {i} não retornou nenhum dado novo.")
+                    continue
+                
+                pass_df = pd.json_normalize(raw_rows_pass)
+                if not pass_df.empty:
+                    consolidated_df = pd.concat([consolidated_df, pass_df], ignore_index=True)
+                
+                consolidated_df = consolidated_df.drop_duplicates(subset=['id'], keep='last')
+                unique_rows_after = consolidated_df.shape[0]
+
+                log.info(f"--- Fim da passagem {i}: {unique_rows_after} registros únicos consolidados. (+{unique_rows_after - unique_rows_before} novos) ---")
+                
+                if unique_rows_after == unique_rows_before:
+                    log.info("✅ Extração estabilizada. Finalizando consolidação.")
+                    break
+                
+                if i < max_passes:
+                    log.info("Aguardando 5s antes da próxima passagem de consolidação...")
+                    time.sleep(5)
+        else:
+            log.info("✅ API estável. Nenhuma duplicata encontrada na primeira passagem. Finalizando extração.")
+            # Se não houver duplicatas, apenas garante que o resultado final está limpo.
+            if 'id' in consolidated_df.columns:
+                 consolidated_df = consolidated_df.drop_duplicates(subset=['id'], keep='last')
 
         if self.enrich_by_id:
-            df = self._enrich_data(df)
+            consolidated_df = self._enrich_data(consolidated_df)
             
-        return df
+        return consolidated_df
     
     def _get_first_page_params(self) -> Dict:
         params = self.base_params.copy()
         if self.paging.get("mode") == "page":
             params[self.paging.get("page_param", "page")] = self.paging.get("start_page", 1)
-            params[self.paging.get("size_param", "limite")] = self.paging.get("size", 100) # Bling usa 'limite'
+            params[self.paging.get("size_param", "limite")] = self.paging.get("size", 100)
         return params
 
     def _get_next_page_params(self, current_params: Dict) -> Optional[Dict]:
@@ -261,7 +301,8 @@ class APISourceAdapter:
 
     def _get_data_from_payload(self, payload: Any, path: Optional[str]) -> Any:
         if not path:
-            if isinstance(payload, list): return payload
+            if isinstance(payload, list): 
+                return payload
             if isinstance(payload, dict):
                 for key in ("data", "items", "results", "content"):
                     if isinstance(payload.get(key), list):
@@ -277,5 +318,4 @@ class APISourceAdapter:
             return data
         except (KeyError, TypeError, IndexError):
             log.warning(f"Caminho de dados '{path}' não encontrado no payload.")
-            log.info(f" -> Payload recebido: {json.dumps(payload, indent=2)}")
             return []

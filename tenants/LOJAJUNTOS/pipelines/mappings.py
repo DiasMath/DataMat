@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-import pandera as pa
+import pandera.pandas as pa
 
 @dataclass
 class MappingSpec:
@@ -109,6 +109,16 @@ MAPPINGS = {
         }               
     ),
 
+    "map_bling_contas_receber_boleto": MappingSpec(
+        src_to_tgt={
+            "id"                    : "CodigoLancamento",
+        },
+        key_cols=["CodigoLancamento"],   
+        validation_rules={
+            "CodigoLancamento"          : {"nullable": False, "unique": True},
+        }               
+    ),
+
     "map_bling_contas_contabeis": MappingSpec(
         src_to_tgt={
             "id"                    : "CodigoContaContabil",
@@ -167,7 +177,7 @@ MAPPINGS = {
             "vendedor.id"                   : "CodVendedor",
             "transporte.fretePorConta"      : "TransporteFretePorConta",
             "transporte.transportador.nome" : "TransporteTransportadorNome",
-            "etiqueta.nome"                 : "EtiquetaNome",
+            "transporte.etiqueta.nome"      : "TransporteEtiquetaNome",
         },
         key_cols=["CodigoNotaFiscal"],   
         validation_rules={
@@ -180,6 +190,7 @@ MAPPINGS = {
             "id"                                            : "CodNotaFiscal",
             "itens.codigo"                                  : "CodigoProduto",
             "itens.descricao"                               : "Descricao",
+            "dataEmissao"                                   : "DataEmissao",
             "itens.unidade"                                 : "Unidade",
             "itens.quantidade"                              : "Quantidade",
             "itens.valor"                                   : "Valor",
@@ -196,14 +207,13 @@ MAPPINGS = {
             "itens.gtin"                                    : "Gtin",
             "itens.cfop"                                    : "Cfop",
             "itens.impostos.valorAproximadoTotalTributos"   : "ImpostoValorAproximadoTotalTributos",
-            "itens.impostos.icms"                           : "ImpostoIcmsSt",
             "itens.impostos.icms.st"                        : "ImpostoIcmsSt",
             "itens.impostos.icms.origem"                    : "ImpostoIcmsOrigem",
             "itens.impostos.icms.modalidade"                : "ImpostoIcmsModalidade",
             "itens.impostos.icms.aliquota"                  : "ImpostoIcmsAliquota",
             "itens.impostos.icms.valor"                     : "ImpostoIcmsValor",
         },
-        key_cols=["CodNotaFiscal", "CodigoProduto", "Quantidade", "Valor"],   
+        key_cols=["CodNotaFiscal", "DataEmissao", "CodigoProduto", "Quantidade", "Valor"],   
         validation_rules={
             "CodNotaFiscal"          : {"nullable": False},
         }               
@@ -212,14 +222,93 @@ MAPPINGS = {
     "map_bling_nota_fiscal_parcela": MappingSpec(
         src_to_tgt={
             "id"                            : "CodNotaFiscal",
+            "dataEmissao"                   : "DataEmissao",
             "parcelas.data"                 : "DataParcela",
             "parcelas.valor"                : "ValorParcela",
             "parcelas.observacoes"          : "Observacoes",
             "parcelas.formaPagamento.id"    : "CodFormaPagamento",
         },
-        key_cols=["CodNotaFiscal", "DataParcela", "ValorParcela"],   
+        key_cols=["CodNotaFiscal", "DataEmissao", "DataParcela", "ValorParcela"],   
         validation_rules={
             "CodNotaFiscal"          : {"nullable": False},
+        }               
+    ),
+
+    # =========== NOTA FISCAL CONSUMIDOR =========== #
+    "map_bling_nota_fiscal_consumidor": MappingSpec(
+        src_to_tgt={
+            "id"                            : "CodigoNotaFiscalConsumidor",
+            "tipo"                          : "Tipo",
+            "situacao"                      : "Situacao",
+            "numero"                        : "Numero",
+            "dataEmissao"                   : "DataEmissao",
+            "dataOperacao"                  : "DataOperacao",
+            "chaveAcesso"                   : "ChaveAcesso",
+            "contato.id"                    : "CodContato",
+            "naturezaOperacao.id"           : "CodNaturezaOperacao",
+            "loja.id"                       : "CodLoja",
+            "serie"                         : "Serie",
+            "valorNota"                     : "ValorNota",
+            "valorFrete"                    : "ValorFrete",
+            "optanteSimplesNacional"        : "OptanteSimplesNacional",
+            "numeroPedidoLoja"              : "NumeroPedidoLoja",
+            "vendedor.id"                   : "CodVendedor",
+            "transporte.fretePorConta"      : "TransporteFretePorConta",
+            "transporte.transportador.nome" : "TransporteTransportadorNome",
+            "transporte.etiqueta.nome"      : "TransporteEtiquetaNome",
+        },
+        key_cols=["CodigoNotaFiscalConsumidor"],   
+        validation_rules={
+            "CodigoNotaFiscalConsumidor"          : {"nullable": False, "unique": True},
+        }               
+    ),
+
+    "map_bling_nota_fiscal_consumidor_item": MappingSpec(
+        src_to_tgt={
+            "id"                                            : "CodigoNotaFiscalConsumidor",
+            "itens.codigo"                                  : "CodigoProduto",
+            "itens.descricao"                               : "Descricao",
+            "dataEmissao"                                   : "DataEmissao",
+            "itens.unidade"                                 : "Unidade",
+            "itens.quantidade"                              : "Quantidade",
+            "itens.valor"                                   : "Valor",
+            "itens.valorTotal"                              : "ValorTotal",
+            "itens.tipo"                                    : "Tipo",
+            "itens.pesoBruto"                               : "PesoBruto",
+            "itens.pesoLiquido"                             : "PesoLiquido",
+            "itens.numeroPedidoCompra"                      : "NumeroPedidoCompra",
+            "itens.classificacaoFiscal"                     : "ClassificacaoFiscal",
+            "itens.cest"                                    : "Cest",
+            "itens.codigoServico"                           : "CodigoServico",
+            "itens.origem"                                  : "Origem",
+            "itens.informacoesAdicionais"                   : "InformacoesAdicionais",
+            "itens.gtin"                                    : "Gtin",
+            "itens.cfop"                                    : "Cfop",
+            "itens.impostos.valorAproximadoTotalTributos"   : "ImpostoValorAproximadoTotalTributos",
+            "itens.impostos.icms.st"                        : "ImpostoIcmsSt",
+            "itens.impostos.icms.origem"                    : "ImpostoIcmsOrigem",
+            "itens.impostos.icms.modalidade"                : "ImpostoIcmsModalidade",
+            "itens.impostos.icms.aliquota"                  : "ImpostoIcmsAliquota",
+            "itens.impostos.icms.valor"                     : "ImpostoIcmsValor",
+        },
+        key_cols=["CodigoNotaFiscalConsumidor", "DataEmissao", "CodigoProduto", "Quantidade", "Valor"],   
+        validation_rules={
+            "CodigoNotaFiscalConsumidor"          : {"nullable": False},
+        }               
+    ),
+
+    "map_bling_nota_fiscal_consumidor_parcela": MappingSpec(
+        src_to_tgt={
+            "id"                            : "CodigoNotaFiscalConsumidor",
+            "dataEmissao"                   : "DataEmissao",
+            "parcelas.data"                 : "DataParcela",
+            "parcelas.valor"                : "ValorParcela",
+            "parcelas.observacoes"          : "Observacoes",
+            "parcelas.formaPagamento.id"    : "CodFormaPagamento",
+        },
+        key_cols=["CodigoNotaFiscalConsumidor", "DataEmissao", "DataParcela", "ValorParcela"],   
+        validation_rules={
+            "CodigoNotaFiscalConsumidor"          : {"nullable": False},
         }               
     ),
 
@@ -259,6 +348,43 @@ MAPPINGS = {
         key_cols=["CodigoProduto"],   
         validation_rules={
             "CodigoProduto"          : {"nullable": False, "unique": True},
+        }               
+    ),
+
+    "map_bling_produto_tributacao": MappingSpec(
+        src_to_tgt={
+            "id"                            : "Codroduto",
+            "tributacao.origem"                        : "Origem",
+            "tributacao.nFCI"                          : "nFCI",
+            "tributacao.ncm"                           : "NCM",
+            "tributacao.cest"                          : "CEST",
+            "tributacao.codigoListaServicos"           : "CodigoListaServicos",
+            "tributacao.spedTipoItem"                  : "SpedTipoItem",
+            "tributacao.codigoItem"                    : "CodigoItem",
+            "tributacao.percentualTributos"            : "PercentualTributos",
+            "tributacao.valorBaseStRetencao"           : "ValorBaseStRetencao",
+            "tributacao.valorStRetencao"               : "ValorStRetencao",
+            "tributacao.valorICMSSubstituto"           : "ValorICMSSubstituto",
+            "tributacao.codigoExcecaoTipi"             : "CodigoExcecaoTipi",
+            "tributacao.classeEnquadramentoIpi"        : "ClasseEnquadramentoIpi",
+            "tributacao.valorIpiFixo"                  : "ValorIpiFixo",
+            "tributacao.codigoSeloIpi"                 : "CodigoSeloIpi",
+            "tributacao.valorPisFixo"                  : "ValorPisFixo",
+            "tributacao.valorCofinsFixo"               : "ValorCofinsFixo",
+            "tributacao.codigoANP"                     : "CodigoANP",
+            "tributacao.descricaoANP"                  : "DescricaoANP",
+            "tributacao.percentualGLP"                 : "PercentualGLP",
+            "tributacao.percentualGasNacional"         : "PercentualGasNacional",
+            "tributacao.percentualGasImportado"        : "PercentualImportado",
+            "tributacao.valorPartida"                  : "ValorPartida",
+            "tributacao.tipoArmamento"                 : "TipoArmamento",
+            "tributacao.descricaoCompletaArmamento"    : "DescricaoCompletaArmamento",
+            "tributacao.dadosAdicionais"               : "DadosAdicionais",
+            "tributacao.grupoProduto"                  : "GrupoProduto",
+        },
+        key_cols=["Codroduto"],   
+        validation_rules={
+            "Codroduto"          : {"nullable": False, "unique": True},
         }               
     ),
 
