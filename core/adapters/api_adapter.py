@@ -6,6 +6,7 @@ import json
 from typing import Any, Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore, Lock
+import itertools
 
 import requests
 import pandas as pd
@@ -38,8 +39,8 @@ class _RateLimiter:
 class APISourceAdapter:
     """
     Adapter para extrair dados de uma fonte API HTTP.
-    Implementa uma "Estratégia Adaptativa": executa de forma rápida para APIs
-    estáveis e ativa um modo de consolidação robusto para APIs instáveis.
+    Combina uma matriz de parâmetros para extração completa com um laço de 
+    consolidação para máxima resiliência contra inconsistências da API.
     """
     def __init__(
         self,
@@ -48,6 +49,7 @@ class APISourceAdapter:
         paging: Optional[Dict] = None,
         auth: Optional[Dict] = None,
         params: Optional[Dict] = None,
+        param_matrix: Optional[Dict] = None,
         enrich_by_id: bool = False,
         enrichment_strategy: str = 'concurrent',
         row_limit: Optional[int] = None,
@@ -58,7 +60,8 @@ class APISourceAdapter:
         delay_between_pages_ms: Optional[int] = None
     ):
         self.paging = paging or {}
-        self.base_params = params or self.paging.get("params", {})
+        self.base_params = params or {}
+        self.param_matrix = param_matrix or {}
         self.enrich_by_id = enrich_by_id
         self.row_limit = row_limit
         self.data_path = data_path
@@ -135,12 +138,92 @@ class APISourceAdapter:
                 time.sleep(self._backoff_base * (2 ** i))
         raise DataExtractionError("Máximo de retentativas atingido.") from last_exc
 
-    def _fetch_all_pages(self) -> List[Dict]:
+    def _execute_full_pass(self) -> List[Dict]:
         """
-        Executa uma única "varredura" completa de todas as páginas da API.
+        Executa uma passagem completa, iterando pela `param_matrix` se ela existir.
+        Retorna uma lista de todos os registros brutos encontrados na passagem.
+        """
+        if self.param_matrix:
+            keys, values = self.param_matrix.keys(), self.param_matrix.values()
+            param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
+            if len(param_combinations) > 1:
+                log.info(f"Executando {len(param_combinations)} combinações de parâmetros.")
+        else:
+            param_combinations = [{}]
+
+        all_rows_for_pass = []
+        for i, combo in enumerate(param_combinations):
+            current_params = self.base_params.copy()
+            current_params.update(combo)
+
+            if len(param_combinations) > 1:
+                log.info(f"--- Conjunto {i+1}/{len(param_combinations)}: {combo} ---")
+            
+            pass_rows = self._fetch_all_pages(params_override=current_params)
+            all_rows_for_pass.extend(pass_rows)
+        
+        return all_rows_for_pass
+
+    def extract(self) -> pd.DataFrame:
+        """
+        Combina a `param_matrix` com o laço de consolidação para máxima resiliência.
+        """
+        consolidated_df = pd.DataFrame()
+        max_passes = 5
+
+        for i in range(1, max_passes + 1):
+            log.info(f"--- Iniciando Passagem de Extração Completa nº {i}/{max_passes} ---")
+            
+            unique_rows_before = consolidated_df.shape[0] if 'id' in consolidated_df.columns else 0
+
+            raw_rows_pass = self._execute_full_pass()
+            if not raw_rows_pass:
+                log.warning(f"Passagem {i} não retornou nenhum dado novo.")
+                if i > 1: # Se não for a primeira passagem, podemos parar
+                    break
+                else: # Se a primeira passagem não retorna nada, o resultado é vazio.
+                    return pd.DataFrame()
+
+            pass_df = pd.json_normalize(raw_rows_pass)
+            if 'id' not in pass_df.columns:
+                 log.warning("Coluna 'id' não encontrada nos dados extraídos. A lógica de consolidação será pulada.")
+                 consolidated_df = pass_df
+                 break
+
+            # Concatena os resultados da passagem atual com os resultados consolidados
+            if not consolidated_df.empty:
+                consolidated_df = pd.concat([consolidated_df, pass_df], ignore_index=True)
+            else:
+                consolidated_df = pass_df
+            
+            # Remove duplicatas, mantendo o último registro encontrado para cada ID
+            consolidated_df = consolidated_df.drop_duplicates(subset=['id'], keep='last')
+            unique_rows_after = consolidated_df.shape[0]
+
+            log.info(f"--- Fim da passagem {i}: {unique_rows_after} registros únicos consolidados. (+{unique_rows_after - unique_rows_before} novos) ---")
+            
+            # Se nenhuma linha nova foi adicionada, a extração está estável
+            if unique_rows_after == unique_rows_before and i > 1:
+                log.info("✅ Extração estabilizada. Finalizando consolidação.")
+                break
+            
+            if i < max_passes and i > 1:
+                log.info("Aguardando 5s antes da próxima passagem de consolidação...")
+                time.sleep(5)
+        
+        if self.enrich_by_id:
+            consolidated_df = self._enrich_data(consolidated_df)
+            
+        return consolidated_df
+
+    def _fetch_all_pages(self, params_override: Optional[Dict] = None) -> List[Dict]:
+        """
+        Executa a paginação para um único conjunto de parâmetros.
         """
         all_rows: List[Dict] = []
-        params = self._get_first_page_params()
+        effective_params = params_override if params_override is not None else self.base_params.copy()
+        
+        params = self._get_first_page_params(base_params=effective_params)
         page_size = params.get(self.paging.get("size_param", "limite"), 100)
         
         max_pages = int(os.getenv("API_MAX_PAGES", "1000"))
@@ -174,13 +257,13 @@ class APISourceAdapter:
             if num_records == 0:
                 consecutive_empty_pages += 1
                 if consecutive_empty_pages >= 3:
-                    log.info(f"✅ Encontradas {consecutive_empty_pages} páginas vazias em sequência. Assumindo fim dos dados para esta passagem.")
+                    log.info(f"✅ Encontradas {consecutive_empty_pages} páginas vazias em sequência. Assumindo fim dos dados.")
                     break
             else:
                 consecutive_empty_pages = 0
 
             if num_records < page_size:
-                log.info(f"✅ Última página detetada ({num_records} de {page_size} registos). Encerrando paginação para esta passagem.")
+                log.info(f"✅ Última página detetada ({num_records} de {page_size} registos). Encerrando paginação.")
                 break
 
             params = self._get_next_page_params(params)
@@ -225,67 +308,9 @@ class APISourceAdapter:
             log.warning("Nenhum registo foi enriquecido com sucesso.")
             return df
         return pd.json_normalize(enriched_rows)
-
-    def extract(self) -> pd.DataFrame:
-        """
-        REFATORADO com a "Estratégia Adaptativa":
-        1. Executa uma primeira passagem de extração.
-        2. Verifica se há duplicatas.
-        3. Se houver, ativa o modo de consolidação para garantir a completude.
-           Caso contrário, finaliza rapidamente.
-        """
-        log.info("--- Iniciando Passagem de Extração nº 1 (Teste de Confiança) ---")
-        all_rows = self._fetch_all_pages()
-        if not all_rows:
-            return pd.DataFrame()
-            
-        consolidated_df = pd.json_normalize(all_rows)
-
-        # A verificação de integridade
-        if 'id' in consolidated_df.columns and consolidated_df.duplicated(subset=['id']).any():
-            log.warning("🚨 API instável detectada! Ativando modo de consolidação para garantir a captura de todos os dados.")
-            
-            # A partir daqui, a lógica de consolidação é ativada.
-            max_passes = 5
-            for i in range(2, max_passes + 1): # Começa da passagem 2
-                log.info(f"--- Iniciando Passagem de Extração nº {i}/{max_passes} ---")
-                
-                unique_rows_before = consolidated_df.drop_duplicates(subset=['id']).shape[0]
-
-                raw_rows_pass = self._fetch_all_pages()
-                if not raw_rows_pass:
-                    log.warning(f"Passagem {i} não retornou nenhum dado novo.")
-                    continue
-                
-                pass_df = pd.json_normalize(raw_rows_pass)
-                if not pass_df.empty:
-                    consolidated_df = pd.concat([consolidated_df, pass_df], ignore_index=True)
-                
-                consolidated_df = consolidated_df.drop_duplicates(subset=['id'], keep='last')
-                unique_rows_after = consolidated_df.shape[0]
-
-                log.info(f"--- Fim da passagem {i}: {unique_rows_after} registros únicos consolidados. (+{unique_rows_after - unique_rows_before} novos) ---")
-                
-                if unique_rows_after == unique_rows_before:
-                    log.info("✅ Extração estabilizada. Finalizando consolidação.")
-                    break
-                
-                if i < max_passes:
-                    log.info("Aguardando 5s antes da próxima passagem de consolidação...")
-                    time.sleep(5)
-        else:
-            log.info("✅ API estável. Nenhuma duplicata encontrada na primeira passagem. Finalizando extração.")
-            # Se não houver duplicatas, apenas garante que o resultado final está limpo.
-            if 'id' in consolidated_df.columns:
-                 consolidated_df = consolidated_df.drop_duplicates(subset=['id'], keep='last')
-
-        if self.enrich_by_id:
-            consolidated_df = self._enrich_data(consolidated_df)
-            
-        return consolidated_df
     
-    def _get_first_page_params(self) -> Dict:
-        params = self.base_params.copy()
+    def _get_first_page_params(self, base_params: Dict) -> Dict:
+        params = base_params.copy()
         if self.paging.get("mode") == "page":
             params[self.paging.get("page_param", "page")] = self.paging.get("start_page", 1)
             params[self.paging.get("size_param", "limite")] = self.paging.get("size", 100)
@@ -300,22 +325,40 @@ class APISourceAdapter:
         return None
 
     def _get_data_from_payload(self, payload: Any, path: Optional[str]) -> Any:
-        if not path:
-            if isinstance(payload, list): 
-                return payload
-            if isinstance(payload, dict):
-                for key in ("data", "items", "results", "content"):
-                    if isinstance(payload.get(key), list):
-                        return payload[key]
-                return payload
-            return []
-        
+        """
+        Extrai os dados do payload de forma robusta. 
+        Se o resultado final for um único dicionário, ele é encapsulado em uma 
+        lista para manter a consistência do fluxo de dados.
+        """
         data = payload
-        try:
-            for key in path.split('.'):
-                if isinstance(data, list): data = data[0] if data else {}
-                data = data[key]
+        
+        # 1. Navega pelo caminho (path) se ele for fornecido
+        if path:
+            try:
+                for key in path.split('.'):
+                    # Se encontrarmos uma lista no meio do caminho, pegamos o primeiro elemento
+                    if isinstance(data, list): data = data[0] if data else {}
+                    data = data[key]
+            except (KeyError, TypeError, IndexError):
+                log.warning(f"Caminho de dados '{path}' não encontrado no payload: {payload}")
+                return []
+        
+        # 2. Processa o resultado final da navegação (ou o payload inicial)
+        
+        # Se o resultado for um dicionário (um único objeto)...
+        if isinstance(data, dict):
+            # ...verificamos se ele contém uma chave padrão de lista (como 'data' ou 'items').
+            for key in ("data", "items", "results", "content"):
+                if key in data and isinstance(data[key], list):
+                    return data[key]
+            
+            # Se não, é um objeto único. Encapsulamos em uma lista para o resto do processo.
+            return [data]
+
+        # Se o resultado já for uma lista, ótimo, retornamos como está.
+        if isinstance(data, list):
             return data
-        except (KeyError, TypeError, IndexError):
-            log.warning(f"Caminho de dados '{path}' não encontrado no payload.")
-            return []
+
+        # Se não for nem dicionário nem lista, não conseguimos processar.
+        log.warning(f"Payload não pôde ser processado em uma lista de registros. Payload: {payload}")
+        return []
