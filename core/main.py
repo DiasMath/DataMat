@@ -98,8 +98,8 @@ def get_job_adapter(job_spec: Any, limit: int = 0) -> Any:
             requests_per_minute=getattr(job_spec, 'requests_per_minute', None),
             enrichment_requests_per_minute=getattr(job_spec, 'enrichment_requests_per_minute', None),
             params=getattr(job_spec, 'params', None),
+            param_matrix=getattr(job_spec, 'param_matrix', None),
             delay_between_pages_ms=getattr(job_spec, 'delay_between_pages_ms', None),
-            # O limite do preview/export é passado como 'row_limit' para o Adapter.
             row_limit=limit if limit > 0 else getattr(job_spec, 'row_limit', None)
         )
     elif job_spec.type == "file":

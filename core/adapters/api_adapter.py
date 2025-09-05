@@ -164,46 +164,41 @@ class APISourceAdapter:
         
         return all_rows_for_pass
 
-    def extract(self) -> pd.DataFrame:
+    def extract_raw(self) -> List[Dict]:
         """
-        Combina a `param_matrix` com o laço de consolidação para máxima resiliência.
+        Método principal de extração. Combina a `param_matrix` com o laço de consolidação
+        e retorna uma lista de dicionários (JSONs brutos).
         """
-        consolidated_df = pd.DataFrame()
+        consolidated_data = {} # Usaremos um dict para consolidar: {id: record}
         max_passes = 5
 
         for i in range(1, max_passes + 1):
             log.info(f"--- Iniciando Passagem de Extração Completa nº {i}/{max_passes} ---")
             
-            unique_rows_before = consolidated_df.shape[0] if 'id' in consolidated_df.columns else 0
+            unique_records_before = len(consolidated_data)
 
             raw_rows_pass = self._execute_full_pass()
+
             if not raw_rows_pass:
                 log.warning(f"Passagem {i} não retornou nenhum dado novo.")
-                if i > 1: # Se não for a primeira passagem, podemos parar
+                if i > 1:
                     break
-                else: # Se a primeira passagem não retorna nada, o resultado é vazio.
-                    return pd.DataFrame()
-
-            pass_df = pd.json_normalize(raw_rows_pass)
-            if 'id' not in pass_df.columns:
-                 log.warning("Coluna 'id' não encontrada nos dados extraídos. A lógica de consolidação será pulada.")
-                 consolidated_df = pass_df
-                 break
-
-            # Concatena os resultados da passagem atual com os resultados consolidados
-            if not consolidated_df.empty:
-                consolidated_df = pd.concat([consolidated_df, pass_df], ignore_index=True)
-            else:
-                consolidated_df = pass_df
+                else:
+                    return []
             
-            # Remove duplicatas, mantendo o último registro encontrado para cada ID
-            consolidated_df = consolidated_df.drop_duplicates(subset=['id'], keep='last')
-            unique_rows_after = consolidated_df.shape[0]
+            # Atualiza o dicionário de consolidação com os dados da passagem atual
+            for record in raw_rows_pass:
+                # O registro deve ser um dicionário e ter uma chave 'id'
+                if isinstance(record, dict) and 'id' in record:
+                    consolidated_data[record['id']] = record
+                else:
+                    log.warning(f"Registro ignorado na consolidação por falta de 'id' ou formato inválido: {record}")
 
-            log.info(f"--- Fim da passagem {i}: {unique_rows_after} registros únicos consolidados. (+{unique_rows_after - unique_rows_before} novos) ---")
+            unique_records_after = len(consolidated_data)
+
+            log.info(f"--- Fim da passagem {i}: {unique_records_after} registros únicos consolidados. (+{unique_records_after - unique_records_before} novos) ---")
             
-            # Se nenhuma linha nova foi adicionada, a extração está estável
-            if unique_rows_after == unique_rows_before and i > 1:
+            if unique_records_after == unique_records_before and i > 1:
                 log.info("✅ Extração estabilizada. Finalizando consolidação.")
                 break
             
@@ -211,10 +206,12 @@ class APISourceAdapter:
                 log.info("Aguardando 5s antes da próxima passagem de consolidação...")
                 time.sleep(5)
         
+        final_list = list(consolidated_data.values())
+
         if self.enrich_by_id:
-            consolidated_df = self._enrich_data(consolidated_df)
+            final_list = self._enrich_data_raw(final_list)
             
-        return consolidated_df
+        return final_list
 
     def _fetch_all_pages(self, params_override: Optional[Dict] = None) -> List[Dict]:
         """
@@ -247,6 +244,7 @@ class APISourceAdapter:
             page_data = self._get_data_from_payload(payload, self.data_path)
             
             if not isinstance(page_data, list):
+                # O _get_data_from_payload agora garante uma lista, mas mantemos por segurança.
                 log.error(f"⛔ Formato de dados inesperado (não é uma lista). Encerrando. Payload: {payload}")
                 break
 
@@ -281,18 +279,24 @@ class APISourceAdapter:
             try:
                 detail_url = f"{self.full_endpoint_url}/{item_id}"
                 response = self._make_request(detail_url, params={}, rate_limiter=self._enrich_rate_limiter)
-                return self._get_data_from_payload(response.json(), self.detail_data_path)
+                # _get_data_from_payload retorna uma lista, pegamos o primeiro elemento
+                enriched_list = self._get_data_from_payload(response.json(), self.detail_data_path)
+                return enriched_list[0] if enriched_list else None
             except Exception as e:
                 log.error(f"Falha ao enriquecer ID {item_id}: {e}")
                 return None
 
-    def _enrich_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        if 'id' not in df.columns:
-            raise DataExtractionError("Coluna 'id' não encontrada para enriquecimento.")
-        ids_to_fetch = df['id'].dropna().unique().tolist()
+    def _enrich_data_raw(self, raw_data: List[Dict]) -> List[Dict]:
+        """Versão do enriquecimento que opera sobre a lista de dicionários brutos."""
+        if not raw_data or 'id' not in raw_data[0]:
+            raise DataExtractionError("Dados brutos inválidos ou sem 'id' para enriquecimento.")
+        
+        ids_to_fetch = list(set(item['id'] for item in raw_data if 'id' in item))
+
         if not ids_to_fetch:
             log.warning("Nenhum ID único encontrado para enriquecer.")
-            return df
+            return raw_data
+            
         log.info(f"🔎 Enriquecendo {len(ids_to_fetch)} registos com estratégia '{self.enrichment_strategy}'...")
         enriched_rows: List[Dict] = []
         if self.enrichment_strategy == 'concurrent':
@@ -304,10 +308,12 @@ class APISourceAdapter:
                 if (i + 1) % 50 == 0: log.info(f"   ... {i+1}/{len(ids_to_fetch)} detalhes buscados")
                 detail = self._enrich_one_detail(item_id)
                 if detail: enriched_rows.append(detail)
+        
         if not enriched_rows:
             log.warning("Nenhum registo foi enriquecido com sucesso.")
-            return df
-        return pd.json_normalize(enriched_rows)
+            return raw_data # Retorna os dados originais se o enriquecimento falhar
+            
+        return enriched_rows
     
     def _get_first_page_params(self, base_params: Dict) -> Dict:
         params = base_params.copy()
@@ -332,33 +338,23 @@ class APISourceAdapter:
         """
         data = payload
         
-        # 1. Navega pelo caminho (path) se ele for fornecido
         if path:
             try:
                 for key in path.split('.'):
-                    # Se encontrarmos uma lista no meio do caminho, pegamos o primeiro elemento
                     if isinstance(data, list): data = data[0] if data else {}
                     data = data[key]
             except (KeyError, TypeError, IndexError):
                 log.warning(f"Caminho de dados '{path}' não encontrado no payload: {payload}")
                 return []
         
-        # 2. Processa o resultado final da navegação (ou o payload inicial)
-        
-        # Se o resultado for um dicionário (um único objeto)...
         if isinstance(data, dict):
-            # ...verificamos se ele contém uma chave padrão de lista (como 'data' ou 'items').
             for key in ("data", "items", "results", "content"):
                 if key in data and isinstance(data[key], list):
                     return data[key]
-            
-            # Se não, é um objeto único. Encapsulamos em uma lista para o resto do processo.
             return [data]
 
-        # Se o resultado já for uma lista, ótimo, retornamos como está.
         if isinstance(data, list):
             return data
 
-        # Se não for nem dicionário nem lista, não conseguimos processar.
         log.warning(f"Payload não pôde ser processado em uma lista de registros. Payload: {payload}")
         return []

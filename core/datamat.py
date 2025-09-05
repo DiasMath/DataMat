@@ -144,8 +144,16 @@ class DataMat:
     # --- MÉTODOS PRIVADOS DO FLUXO DE ETL ---
     
     def _extract_and_transform(self, adapter: Any, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
-        """Agrupa as etapas de extração e transformação que são comuns aos modos de execução."""
-        df = self._extract(adapter, job_name)
+        """Agrupa as etapas de extração e transformação."""
+        # 1. Extrai os dados brutos (ainda no formato JSON/Dict aninhado)
+        raw_data = self._extract(adapter, job_name)
+        if not raw_data:
+            return pd.DataFrame()
+
+        # 2. Normaliza os dados usando as regras do mapping_spec
+        df = self._normalize_data(raw_data, mapping_spec, job_name)
+
+        # 3. Continua com o fluxo normal de mapeamento e validação
         df = self._prepare_and_map(df, job_config, mapping_spec, job_name)
         eff_keys = self._get_effective_keys(job_config, mapping_spec)
         df = self._deduplicate(df, eff_keys, job_name)
@@ -153,15 +161,54 @@ class DataMat:
         df = self._transform(df, job_name)
         return df
 
-    def _extract(self, adapter: Any, job_name: str) -> pd.DataFrame:
-        self.log.info(f"[{job_name}] Extraindo dados...")
+    # O MÉTODO _extract AGORA RETORNA A LISTA BRUTA
+    def _extract(self, adapter: Any, job_name: str) -> List[Dict]:
+        self.log.info(f"[{job_name}] Extraindo dados brutos...")
         t0 = time.perf_counter()
         try:
-            df = adapter.extract()
-            self.log.info(f"✅ [{job_name}] Extração concluída: {len(df)} linhas em {time.perf_counter()-t0:.2f}s")
-            return df
+            # O adapter.extract() agora retorna a lista de dicionários brutos
+            raw_data = adapter.extract_raw() 
+            self.log.info(f"✅ [{job_name}] Extração concluída: {len(raw_data)} registros brutos em {time.perf_counter()-t0:.2f}s")
+            return raw_data
         except Exception as e:
             raise DataExtractionError(f"Falha na extração para o job '{job_name}'.") from e
+
+    def _normalize_data(self, raw_data: List[Dict], mapping_spec: Any, job_name: str) -> pd.DataFrame:
+        """
+        Normaliza os dados brutos, lidando com listas aninhadas ('explodir') 
+        e metadados aninhados de forma segura.
+        """
+        self.log.info(f"[{job_name}] Normalizando dados...")
+        record_path = getattr(mapping_spec, 'record_path', None)
+        
+        if record_path:
+            meta_cols_config = getattr(mapping_spec, 'meta_cols', [])
+            
+            processed_meta = [
+                col.split('.') if '.' in col else col 
+                for col in meta_cols_config
+            ]
+            
+            data_with_records = [
+                record for record in raw_data 
+                if isinstance(record, dict) and record_path in record and isinstance(record[record_path], list)
+            ]
+
+            if not data_with_records:
+                self.log.warning(f"[{job_name}] Nenhum registro encontrado com o record_path '{record_path}'. Retornando DataFrame vazio.")
+                return pd.DataFrame()
+
+            self.log.info(f"[{job_name}] Encontrados {len(data_with_records)}/{len(raw_data)} registros com o record_path '{record_path}'. Aplicando normalização...")
+            
+            return pd.json_normalize(
+                data_with_records,
+                record_path=record_path,
+                meta=processed_meta, # Usa a lista processada
+                errors='ignore' 
+            )
+        else:
+            # Comportamento padrão para dados não aninhados
+            return pd.json_normalize(raw_data)
 
     def _prepare_and_map(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
         if df.empty: 
@@ -172,19 +219,26 @@ class DataMat:
         
         w = df.copy()
         
+        # Lista das colunas de ORIGEM que queremos manter
         expected_src_cols = list(mapping_spec.src_to_tgt.keys())
-        missing_cols = set(expected_src_cols) - set(w.columns)
         
-        if missing_cols:
-            self.log.warning(f"[{job_name}] As seguintes colunas esperadas no mapping não foram encontradas na fonte: {list(missing_cols)}. Elas serão adicionadas com valores nulos.")
-            for col in missing_cols:
-                w[col] = None # Cria a coluna com valores nulos
+        # Garante que todas as colunas esperadas existam, preenchendo com nulos se faltarem
+        for col in expected_src_cols:
+            if col not in w.columns:
+                self.log.warning(f"[{job_name}] Coluna de origem '{col}' não encontrada. Adicionando com valores nulos.")
+                w[col] = None
 
+        # --- LÓGICA DE CORREÇÃO ---
+        # Filtra o DataFrame, mantendo APENAS as colunas que estão no mapeamento.
+        # Isso descarta colunas extras como 'caut'.
         w = w[expected_src_cols]
+        
+        # Renomeia as colunas para o padrão do destino
         w = w.rename(columns=mapping_spec.src_to_tgt)
-
+        
+        # Limpeza segura dos dados de texto
         for c in w.select_dtypes(include=['object', 'string']).columns:
-            w[c] = w[c].str.strip()
+            w[c] = w[c].apply(lambda x: x.strip() if isinstance(x, str) else x)
             
         return w
 
