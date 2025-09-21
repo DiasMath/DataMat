@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Dict
 import pandas as pd
 from sqlalchemy import text, select
 from sqlalchemy.engine import Connection
@@ -69,10 +69,16 @@ class MySQLStrategy(DbStrategy):
         
         return inserted, updated
 
-    def execute_procedure(self, conn: Connection, proc_name: str) -> Tuple[int, int]:
+    def execute_procedure(self, conn: Connection, proc_name: str, params: Dict[str, Any] = None) -> Tuple[int, int]:
         log.debug(f"Executando procedure MySQL: {proc_name}")
-        # O MySQL usa a sintaxe CALL e variáveis de sessão para parâmetros de saída.
-        conn.execute(text(f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows);"))
+        
+        # Constrói a lista de parâmetros para a chamada
+        param_str = ", ".join([f":{k}" for k in (params or {})])
+        
+        # A chamada agora inclui os parâmetros, se existirem
+        sql_call = f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows, {param_str});"
+        
+        conn.execute(text(sql_call), (params or {}))
         result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
         
         if result and result[0] is not None:

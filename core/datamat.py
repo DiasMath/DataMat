@@ -1,6 +1,5 @@
-# core/datamat.py
-
 from __future__ import annotations
+from datetime import datetime, timedelta
 import logging
 import os
 import re
@@ -94,13 +93,29 @@ class DataMat:
         self.log.info(f"▶️  [{job_name}] Iniciando job em modo 'extract-only'...")
         return self._extract_and_transform(adapter, job_config, mapping_spec, job_name)
 
-    def run_dw_procedure(self, proc_name: str, resilient: bool = True) -> Tuple[int, int]:
+    def run_dw_procedure(self, proc_config: Dict, resilient: bool = True) -> Tuple[int, int]:
+        proc_name = proc_config["name"]
         self.log.info(f"   -> Delegando execução da procedure '{proc_name}' para a estratégia.")
+        
         try:
+            inc_config = proc_config.get('incremental_config', None)
+            params = {}
+            if inc_config and inc_config.get("enabled", False):
+                days = inc_config.get("days_to_load", 30)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=days)
+                
+                # Prepara os parâmetros para a chamada da procedure
+                params = {
+                    "p_data_inicio": start_date.strftime("%Y-%m-%d"),
+                    "p_data_fim": end_date.strftime("%Y-%m-%d")
+                }
+                log.info(f"   -> Carga incremental ativada para '{proc_name}'. Carregando {days} dias.")
+
             with self.engine.connect() as conn:
                 with conn.begin():
-                    # A complexidade da chamada (CALL vs EXEC) é agora responsabilidade da estratégia.
-                    inserted, updated = self.strategy.execute_procedure(conn, proc_name)
+                    # A estratégia agora recebe os parâmetros dinâmicos
+                    inserted, updated = self.strategy.execute_procedure(conn, proc_name, params)
             
             self.log.info(f"   -> ✅ {proc_name}: {inserted} inseridos, {updated} atualizadas.")
             return inserted, updated
@@ -110,6 +125,26 @@ class DataMat:
             if not resilient:
                 raise DataLoadError(f"Falha ao executar a procedure '{proc_name}'.") from e
             return 0, 0
+        
+    def export_job_to_excel(self, adapter: Any, job_config: Any, mapping_spec: Any, tenant_id: str, root_dir: Path, limit: int) -> None:
+        """
+        Executa a extração de um job e exporta o resultado para um arquivo Excel
+        na pasta de dados do tenant.
+        """
+        job_name = job_config.name
+        self.log.info(f"Executando em modo EXPORT para o job '{job_name}'")
+        
+        # 1. Extrai e transforma os dados usando o método existente
+        df = self.run_etl_job_extract_only(adapter, job_config, mapping_spec)
+        
+        # 2. Imprime o preview no console
+        print(f"\n--- Preview do Job: {job_name} ---")
+        print(df.head(limit))
+        print(f"Total de linhas extraídas: {len(df)}")
+        print(f"Tipos de dados:\n{df.dtypes}")
+        
+        # 3. Delega a lógica de salvar o arquivo para um método privado
+        self._save_df_to_excel(df, tenant_id, job_name, root_dir)
     
     # --- MÉTODOS DE LOG E UTILITÁRIOS (INTACTOS) ---
 
@@ -161,7 +196,6 @@ class DataMat:
         df = self._transform(df, job_name)
         return df
 
-    # O MÉTODO _extract AGORA RETORNA A LISTA BRUTA
     def _extract(self, adapter: Any, job_name: str) -> List[Dict]:
         self.log.info(f"[{job_name}] Extraindo dados brutos...")
         t0 = time.perf_counter()
@@ -175,15 +209,16 @@ class DataMat:
 
     def _normalize_data(self, raw_data: List[Dict], mapping_spec: Any, job_name: str) -> pd.DataFrame:
         """
-        Normaliza os dados brutos, lidando com listas aninhadas ('explodir') 
-        e metadados aninhados de forma segura.
+        Normaliza os dados brutos, lidando com listas aninhadas, metadados aninhados
+        e conflitos de nome usando um prefixo.
         """
         self.log.info(f"[{job_name}] Normalizando dados...")
         record_path = getattr(mapping_spec, 'record_path', None)
         
         if record_path:
             meta_cols_config = getattr(mapping_spec, 'meta_cols', [])
-            
+            meta_prefix_config = getattr(mapping_spec, 'meta_prefix', None)
+
             processed_meta = [
                 col.split('.') if '.' in col else col 
                 for col in meta_cols_config
@@ -203,11 +238,11 @@ class DataMat:
             return pd.json_normalize(
                 data_with_records,
                 record_path=record_path,
-                meta=processed_meta, # Usa a lista processada
+                meta=processed_meta,
+                meta_prefix=meta_prefix_config,
                 errors='ignore' 
             )
         else:
-            # Comportamento padrão para dados não aninhados
             return pd.json_normalize(raw_data)
 
     def _prepare_and_map(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
@@ -228,7 +263,6 @@ class DataMat:
                 self.log.warning(f"[{job_name}] Coluna de origem '{col}' não encontrada. Adicionando com valores nulos.")
                 w[col] = None
 
-        # --- LÓGICA DE CORREÇÃO ---
         # Filtra o DataFrame, mantendo APENAS as colunas que estão no mapeamento.
         # Isso descarta colunas extras como 'caut'.
         w = w[expected_src_cols]
@@ -243,7 +277,8 @@ class DataMat:
         return w
 
     def _deduplicate(self, df: pd.DataFrame, keys: List[str], job_name: str) -> pd.DataFrame:
-        if df.empty or not keys: return df
+        if df.empty or not keys: 
+            return df
         self.log.info(f"🧹 [{job_name}] Removendo duplicatas pela chave {keys}...")
         before = len(df)
         df_dedup = df.drop_duplicates(subset=keys, keep='last').reset_index(drop=True)
@@ -252,10 +287,12 @@ class DataMat:
         return df_dedup
 
     def _validate(self, df: pd.DataFrame, keys: List[str], mapping_spec: Any, job_name: str) -> None:
-        if df.empty: return
+        if df.empty: 
+            return
         self.log.info(f"🔎 [{job_name}] Validando qualidade dos dados...")
         validation_rules = getattr(mapping_spec, 'validation_rules', {})
-        if not validation_rules and not keys: return
+        if not validation_rules and not keys: 
+            return
         try:
             schema_cols = {col: pa.Column(**rules) for col, rules in validation_rules.items()}
             for key in keys:
@@ -272,7 +309,8 @@ class DataMat:
         return df
 
     def _load(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> Tuple[int, int]:
-        if df.empty: return 0, 0
+        if df.empty: 
+            return 0, 0
         
         table = job_config.table
         schema = os.getenv(job_config.db_name) 
@@ -307,7 +345,9 @@ class DataMat:
                     conn.execute(text(f"DROP TABLE IF EXISTS {temp_table_name};"))
                     
         except Exception as e:
-            raise DataLoadError(f"Falha na carga para a tabela '{table}'.") from e
+            detailed_error_message = f"Falha na carga para a tabela '{table}'. Erro original: {e}"
+            raise DataLoadError(detailed_error_message) from e
+
 
     def _append_to_db(self, df: pd.DataFrame, table_name: str, schema: Optional[str]) -> Tuple[int, int]:
         df.to_sql(table_name, con=self.engine, schema=schema, if_exists=self.config.ingest_if_exists, index=False, chunksize=self.config.ingest_chunksize, method=self.config.ingest_method)
@@ -320,3 +360,19 @@ class DataMat:
     def _get_effective_keys(self, job_config: Any, mapping_spec: Any) -> List[str]:
         keys = getattr(mapping_spec, "key_cols", [])
         return [keys] if isinstance(keys, str) else keys
+    
+    def _save_df_to_excel(self, df: pd.DataFrame, tenant_id: str, job_name: str, root_dir: Path) -> None:
+        """
+        Salva um DataFrame em um arquivo .xlsx na estrutura de pastas do tenant.
+        """
+        try:
+            output_path = root_dir / "tenants" / tenant_id / "data"
+            output_path.mkdir(exist_ok=True)
+            safe_job_name = job_name.replace(" ", "_").replace("/", "-")
+            export_file = output_path / f"{safe_job_name}.xlsx"
+            df.to_excel(export_file, index=False)
+            
+            self.log.info(f"✅ Dados exportados para: {export_file}")
+        except Exception as e:
+            self.log.error(f"Falha ao exportar o arquivo para o job '{job_name}': {e}")
+            raise DataLoadError(f"Falha ao salvar o arquivo Excel para o job '{job_name}'.") from e

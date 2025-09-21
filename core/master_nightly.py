@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv, dotenv_values
 
-from core.main import run_client
+from core.main import run_tenant_pipeline
 from core.alerts.email import send_email
 from core.alerts.telegram import send_telegram_text
 
@@ -240,7 +240,7 @@ def run_all_clients() -> Tuple[List[Tuple[str, int]], float]:
         # --- execução por cliente (não interrompe os demais) ---
         cli_inicio = datetime.now()
         try:
-            total, _detalhes = run_client(cid, workers_per_client=W)
+            total, _detalhes = run_tenant_pipeline(cid, workers_per_client=W)
             resumo.append((cid, total))
         except Exception as e:
             tb = traceback.format_exc(limit=12)

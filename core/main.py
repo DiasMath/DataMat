@@ -1,6 +1,5 @@
-# core/main.py
-
 import argparse
+from datetime import datetime, timedelta
 import importlib
 import logging.config
 import os
@@ -164,25 +163,44 @@ def run_tenant_pipeline(
         stg_results = []
         for job_spec in jobs_to_run:
             try:
+                inc_config = getattr(job_spec, 'incremental_config', None)
+                if inc_config and inc_config.get("enabled", False):
+                    
+                    days = inc_config.get("days_to_load", 30)
+                    param_start = inc_config.get("date_param_start")
+                    param_end = inc_config.get("date_param_end")
+                    
+                    if param_start and param_end:
+                        end_date = datetime.now()
+                        start_date = end_date - timedelta(days=days)
+                        date_format = "%Y-%m-%d"
+                        
+                        if job_spec.params is None:
+                            job_spec.params = {}
+                            
+                        # Injeta as datas dinâmicas nos parâmetros do job
+                        job_spec.params[param_start] = start_date.strftime(date_format)
+                        job_spec.params[param_end] = end_date.strftime(date_format)
+                        
+                        log.info(f"[{job_spec.name}] Carga incremental ativada. Carregando dados de {days} dias.")
+                        log.info(f" -> {param_start}: {job_spec.params[param_start]}")
+                        log.info(f" -> {param_end}: {job_spec.params[param_end]}")
+
                 effective_limit = limit if preview or export else 0
                 adapter = get_job_adapter(job_spec, limit=effective_limit)
                 mapping_spec = MAPPINGS.get(job_spec.map_id)
                 
-                if preview or export:
-                    log.info(f"Executando em modo PREVIEW/EXPORT para o job '{job_spec.name}'")
+                if export:
+                    datamat.export_job_to_excel(adapter, job_spec, mapping_spec, tenant_id, ROOT_DIR, limit)
+                    continue
+                
+                if preview:
+                    log.info(f"Executando em modo PREVIEW para o job '{job_spec.name}'")
                     df = datamat.run_etl_job_extract_only(adapter, job_spec, mapping_spec)
                     print(f"\n--- Preview do Job: {job_spec.name} ---")
                     print(df.head(limit))
                     print(f"Total de linhas extraídas: {len(df)}")
                     print(f"Tipos de dados:\n{df.dtypes}")
-                    
-                    if export:
-                        output_path = ROOT_DIR / "output"
-                        output_path.mkdir(exist_ok=True)
-                        export_file = output_path / f"{tenant_id}_{job_spec.name}.csv"
-                        df.to_csv(export_file, index=False, sep=';', decimal=',')
-                        log.info(f"Dados exportados para: {export_file}")
-                    
                     continue
 
                 result = datamat.run_etl_job(adapter, job_spec, mapping_spec)
