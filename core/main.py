@@ -5,6 +5,7 @@ import logging.config
 import os
 import sys
 from pathlib import Path
+import traceback
 from typing import Any, List
 
 from dotenv import load_dotenv
@@ -117,22 +118,26 @@ def get_job_adapter(job_spec: Any, limit: int = 0) -> Any:
 
 def run_tenant_pipeline(
     tenant_id: str,
-    job_names: List[str],
-    preview: bool,
-    export: bool,
-    limit: int
+    job_names: List[str] = None,
+    preview: bool = False,
+    export: bool = False,
+    limit: int = 0,
+    workers_per_client: int = 2  # Contrato 1: Aceita o argumento do orquestrador
 ):
     """
-    Executa o pipeline para um tenant.
+    Executa o pipeline para um tenant, respeitando os contratos de chamada e retorno.
     """
     log.info(f"================ INICIANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
+    stg_results = []
+    total_rows_pipeline = 0 # Contrato 3: Inicializa o acumulador de linhas para o pipeline inteiro
+
     try:
-        # Lógica de carregamento de configuração
+        # Lógica de carregamento de configuração (permanece a mesma)
         env_path = ROOT_DIR / "tenants" / tenant_id / "config" / ".env"
         if not env_path.exists():
             log.error(f"Arquivo .env não encontrado para o tenant '{tenant_id}' em {env_path}")
-            return
+            return -1, {"error": f"Arquivo .env não encontrado para o tenant '{tenant_id}'"}
         load_dotenv(dotenv_path=env_path)
 
         global_env_path = ROOT_DIR / ".env"
@@ -160,31 +165,23 @@ def run_tenant_pipeline(
         )
         datamat = DataMat(engine=engine, config=datamat_config)
 
-        stg_results = []
         for job_spec in jobs_to_run:
             try:
+                # Lógica incremental (permanece a mesma)
                 inc_config = getattr(job_spec, 'incremental_config', None)
                 if inc_config and inc_config.get("enabled", False):
-                    
                     days = inc_config.get("days_to_load", 30)
                     param_start = inc_config.get("date_param_start")
                     param_end = inc_config.get("date_param_end")
-                    
                     if param_start and param_end:
                         end_date = datetime.now()
                         start_date = end_date - timedelta(days=days)
                         date_format = "%Y-%m-%d"
-                        
-                        if job_spec.params is None:
+                        if job_spec.params is None: 
                             job_spec.params = {}
-                            
-                        # Injeta as datas dinâmicas nos parâmetros do job
                         job_spec.params[param_start] = start_date.strftime(date_format)
                         job_spec.params[param_end] = end_date.strftime(date_format)
-                        
                         log.info(f"[{job_spec.name}] Carga incremental ativada. Carregando dados de {days} dias.")
-                        log.info(f" -> {param_start}: {job_spec.params[param_start]}")
-                        log.info(f" -> {param_end}: {job_spec.params[param_end]}")
 
                 effective_limit = limit if preview or export else 0
                 adapter = get_job_adapter(job_spec, limit=effective_limit)
@@ -199,39 +196,43 @@ def run_tenant_pipeline(
                     df = datamat.run_etl_job_extract_only(adapter, job_spec, mapping_spec)
                     print(f"\n--- Preview do Job: {job_spec.name} ---")
                     print(df.head(limit))
-                    print(f"Total de linhas extraídas: {len(df)}")
-                    print(f"Tipos de dados:\n{df.dtypes}")
                     continue
 
-                result = datamat.run_etl_job(adapter, job_spec, mapping_spec)
-                stg_results.append(result)
+                # --- Ponto Crítico da Correção ---
+                # Contrato 2: Respeita o retorno (job_name, inserted, updated) de datamat.py
+                result_tuple = datamat.run_etl_job(adapter, job_spec, mapping_spec)
+                stg_results.append(result_tuple)
+                
+                # Contrato 3: Acumula o total de linhas para o resumo final
+                inserted_rows = result_tuple[1]
+                updated_rows = result_tuple[2]
+                total_rows_pipeline += inserted_rows + updated_rows
+                # --- Fim do Ponto Crítico ---
 
             except (DataMatError, Exception) as e:
                 log.critical(f"Job '{job_spec.name}' falhou com erro inesperado: {e}", exc_info=True)
                 datamat.log_etl_error(process_name=job_spec.name, message=str(e))
-                break
+                # Interrompe a execução para este tenant e propaga a falha
+                raise 
 
         proc_results = []
-        if not (job_names or preview or export):
-            if PROCS:
-                for group in PROCS:
-                    log.info("Executando grupo de procedures...")
-                    for proc in group:
-                        proc_results.append(datamat.run_dw_procedure(proc["sql"]))
-            else:
-                log.info("Nenhuma procedure definida para execução.")
-        else:
-            log.info("Procedures não executadas devido aos parâmetros de execução (--jobs, --preview, --export).")
-
+        if not (job_names or preview or export) and PROCS:
+            for group in PROCS:
+                log.info("Executando grupo de procedures...")
+                for proc in group:
+                    proc_results.append(datamat.run_dw_procedure(proc))
+        
         datamat.log_summary(tenant_id, stg_results, proc_results)
 
-    except (FileNotFoundError, ValueError, ModuleNotFoundError, AttributeError) as e:
-        log.error(f"Falha na configuração ou inicialização do pipeline para '{tenant_id}': {e}")
     except Exception as e:
         log.critical(f"Erro inesperado no pipeline do tenant '{tenant_id}': {e}", exc_info=True)
+        # Contrato 3: Retorna -1 em caso de qualquer falha no pipeline
+        return -1, {"error": str(e), "traceback": traceback.format_exc()}
     
     log.info(f"================ FINALIZANDO PIPELINE PARA O TENANT: {tenant_id} ================")
-
+    
+    # Contrato 3: Retorna o total de linhas acumulado e os detalhes no final da execução bem-sucedida
+    return total_rows_pipeline, stg_results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Executor de pipelines de ETL do DataMat.")
