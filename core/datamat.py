@@ -105,17 +105,18 @@ class DataMat:
                 end_date = datetime.now()
                 start_date = end_date - timedelta(days=days)
                 
-                # Prepara os parâmetros para a chamada da procedure
                 params = {
                     "p_data_inicio": start_date.strftime("%Y-%m-%d"),
                     "p_data_fim": end_date.strftime("%Y-%m-%d")
                 }
                 log.info(f"   -> Carga incremental ativada para '{proc_name}'. Carregando {days} dias.")
 
+            if params:
+                proc_config['params'] = params
+
             with self.engine.connect() as conn:
                 with conn.begin():
-                    # A estratégia agora recebe os parâmetros dinâmicos
-                    inserted, updated = self.strategy.execute_procedure(conn, proc_name, params)
+                    inserted, updated = self.strategy.execute_procedure(conn, proc_config)
             
             self.log.info(f"   -> ✅ {proc_name}: {inserted} inseridos, {updated} atualizadas.")
             return inserted, updated

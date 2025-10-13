@@ -25,6 +25,15 @@ class MappingSpec:
     # O ETL falhará se os dados não passarem nessas validações.
     validation_rules: Dict[str, Dict] = field(default_factory=dict)
 
+    # Caminho para a lista a ser "explodida" em múltiplas linhas (ex: 'itens')
+    record_path: Optional[str] = None
+    
+    # Colunas do nível superior (cabeçalho) a serem mantidas em cada linha explodida
+    meta_cols: Optional[List[str]] = None
+
+    # Prefixo para colunas de metadados para evitar conflitos de nome.
+    meta_prefix: Optional[str] = None
+
 
 # ===================================================================
 # MAPPINGS DEFINITIONS
@@ -69,8 +78,8 @@ MAPPINGS = {
             "competencia"           : "DataCompetencia",
             "historico"             : "Historico",
             "numeroBanco"           : "NumeroBanco",
-            "portador.id"           : "CodPortador", 
-            "categoria.id"          : "CodCategoria",
+            "portador.id"           : "CodContaContabil", 
+            "categoria.id"          : "CodCategoriaFinanceira",
             "ocorrencia.tipo"       : "TipoOcorrencia",
         },
         key_cols=["CodigoLancamento"],
@@ -91,15 +100,14 @@ MAPPINGS = {
             "contato.id"            : "CodContato",
             "formaPagamento.id"     : "CodFormaPagamento",
             "contaContabil.id"      : "CodContaContabil",
-            "origem.id"             : "CodOrigem",
+            "origem.id"             : "CodNotaFiscalOrigem",
             "saldo"                 : "Saldo",
             "vencimentoOriginal"    : "DataVencimentoOriginal",
             "numeroDocumento"       : "NumeroDocumento",
             "competencia"           : "DataCompetencia",
             "historico"             : "Historico",
             "numeroBanco"           : "NumeroBanco",
-            "portador.id"           : "CodPortador",
-            "categoria.id"          : "CodCategoria",
+            "categoria.id"          : "CodCategoriaFinanceira",
             "vendedor.id"           : "CodVendedor",
             "ocorrencia.tipo"       : "TipoOcorrencia",
         },
@@ -109,15 +117,15 @@ MAPPINGS = {
         }               
     ),
 
-    "map_bling_contas_receber_boleto": MappingSpec(
-        src_to_tgt={
-            "id"                    : "CodigoLancamento",
-        },
-        key_cols=["CodigoLancamento"],   
-        validation_rules={
-            "CodigoLancamento"          : {"nullable": False, "unique": True},
-        }               
-    ),
+    # "map_bling_contas_receber_boleto": MappingSpec(
+    #     src_to_tgt={
+    #         "id"                    : "CodigoLancamento",
+    #     },
+    #     key_cols=["CodigoLancamento"],   
+    #     validation_rules={
+    #         "CodigoLancamento"          : {"nullable": False, "unique": True},
+    #     }               
+    # ),
 
     "map_bling_contas_contabeis": MappingSpec(
         src_to_tgt={
@@ -187,52 +195,60 @@ MAPPINGS = {
 
     "map_bling_nota_fiscal_item": MappingSpec(
         src_to_tgt={
-            "id"                                            : "CodNotaFiscal",
-            "itens.codigo"                                  : "CodigoProduto",
-            "itens.descricao"                               : "Descricao",
-            "dataEmissao"                                   : "DataEmissao",
-            "itens.unidade"                                 : "Unidade",
-            "itens.quantidade"                              : "Quantidade",
-            "itens.valor"                                   : "Valor",
-            "itens.valorTotal"                              : "ValorTotal",
-            "itens.tipo"                                    : "Tipo",
-            "itens.pesoBruto"                               : "PesoBruto",
-            "itens.pesoLiquido"                             : "PesoLiquido",
-            "itens.numeroPedidoCompra"                      : "NumeroPedidoCompra",
-            "itens.classificacaoFiscal"                     : "ClassificacaoFiscal",
-            "itens.cest"                                    : "Cest",
-            "itens.codigoServico"                           : "CodigoServico",
-            "itens.origem"                                  : "Origem",
-            "itens.informacoesAdicionais"                   : "InformacoesAdicionais",
-            "itens.gtin"                                    : "Gtin",
-            "itens.cfop"                                    : "Cfop",
-            "itens.impostos.valorAproximadoTotalTributos"   : "ImpostoValorAproximadoTotalTributos",
-            "itens.impostos.icms.st"                        : "ImpostoIcmsSt",
-            "itens.impostos.icms.origem"                    : "ImpostoIcmsOrigem",
-            "itens.impostos.icms.modalidade"                : "ImpostoIcmsModalidade",
-            "itens.impostos.icms.aliquota"                  : "ImpostoIcmsAliquota",
-            "itens.impostos.icms.valor"                     : "ImpostoIcmsValor",
+            "id"                                      : "CodNotaFiscal",
+            "codigo"                                  : "CodigoSKU",
+            "descricao"                               : "Descricao",
+            "dataEmissao"                             : "DataEmissao",
+            "unidade"                                 : "Unidade",
+            "quantidade"                              : "Quantidade",
+            "valor"                                   : "Valor",
+            "valorTotal"                              : "ValorTotal",
+            "tipo"                                    : "Tipo",
+            "pesoBruto"                               : "PesoBruto",
+            "pesoLiquido"                             : "PesoLiquido",
+            "numeroPedidoCompra"                      : "NumeroPedidoCompra",
+            "classificacaoFiscal"                     : "ClassificacaoFiscal",
+            "cest"                                    : "Cest",
+            "codigoServico"                           : "CodigoServico",
+            "origem"                                  : "Origem",
+            "informacoesAdicionais"                   : "InformacoesAdicionais",
+            "gtin"                                    : "Gtin",
+            "cfop"                                    : "Cfop",
+            "impostos.valorAproximadoTotalTributos"   : "ImpostoValorAproximadoTotalTributos",
+            "impostos.icms.st"                        : "ImpostoIcmsSt",
+            "impostos.icms.origem"                    : "ImpostoIcmsOrigem",
+            "impostos.icms.modalidade"                : "ImpostoIcmsModalidade",
+            "impostos.icms.aliquota"                  : "ImpostoIcmsAliquota",
+            "impostos.icms.valor"                     : "ImpostoIcmsValor",
         },
-        key_cols=["CodNotaFiscal", "DataEmissao", "CodigoProduto", "Quantidade", "Valor"],   
+        key_cols=["CodNotaFiscal", "CodigoSKU", "Descricao", 
+                  "DataEmissao", "Unidade", "Quantidade", "Valor", "ValorTotal", "Tipo", "PesoBruto", "PesoLiquido",
+                  "NumeroPedidoCompra", "ClassificacaoFiscal", "Cest", "CodigoServico", "Origem",
+                  "InformacoesAdicionais", "Gtin", "Cfop", "ImpostoValorAproximadoTotalTributos",
+                  "ImpostoIcmsSt", "ImpostoIcmsOrigem", "ImpostoIcmsModalidade", "ImpostoIcmsAliquota", "ImpostoIcmsValor" ],   
+        record_path="itens",
+        meta_cols=["id", "dataEmissao"],
         validation_rules={
             "CodNotaFiscal"          : {"nullable": False},
         }               
     ),
 
-    "map_bling_nota_fiscal_parcela": MappingSpec(
-        src_to_tgt={
-            "id"                            : "CodNotaFiscal",
-            "dataEmissao"                   : "DataEmissao",
-            "parcelas.data"                 : "DataParcela",
-            "parcelas.valor"                : "ValorParcela",
-            "parcelas.observacoes"          : "Observacoes",
-            "parcelas.formaPagamento.id"    : "CodFormaPagamento",
-        },
-        key_cols=["CodNotaFiscal", "DataEmissao", "DataParcela", "ValorParcela"],   
-        validation_rules={
-            "CodNotaFiscal"          : {"nullable": False},
-        }               
-    ),
+    # "map_bling_nota_fiscal_parcela": MappingSpec(
+    #     src_to_tgt={
+    #         "id"                   : "CodNotaFiscal",
+    #         "dataEmissao"          : "DataEmissao",
+    #         "data"                 : "DataParcela",
+    #         "valor"                : "ValorParcela",
+    #         "observacoes"          : "Observacoes",
+    #         "formaPagamento.id"    : "CodFormaPagamento",
+    #     },
+    #     key_cols=["CodNotaFiscal", "DataEmissao", "DataParcela", "ValorParcela", "Observacoes", "CodFormaPagamento"],   
+    #     record_path="parcelas",
+    #     meta_cols=["id", "dataEmissao"],
+    #     validation_rules={
+    #         "CodNotaFiscal"          : {"nullable": False},
+    #     }               
+    # ),
 
     # =========== NOTA FISCAL CONSUMIDOR =========== #
     "map_bling_nota_fiscal_consumidor": MappingSpec(
@@ -265,85 +281,94 @@ MAPPINGS = {
 
     "map_bling_nota_fiscal_consumidor_item": MappingSpec(
         src_to_tgt={
-            "id"                                            : "CodigoNotaFiscalConsumidor",
-            "itens.codigo"                                  : "CodigoProduto",
-            "itens.descricao"                               : "Descricao",
-            "dataEmissao"                                   : "DataEmissao",
-            "itens.unidade"                                 : "Unidade",
-            "itens.quantidade"                              : "Quantidade",
-            "itens.valor"                                   : "Valor",
-            "itens.valorTotal"                              : "ValorTotal",
-            "itens.tipo"                                    : "Tipo",
-            "itens.pesoBruto"                               : "PesoBruto",
-            "itens.pesoLiquido"                             : "PesoLiquido",
-            "itens.numeroPedidoCompra"                      : "NumeroPedidoCompra",
-            "itens.classificacaoFiscal"                     : "ClassificacaoFiscal",
-            "itens.cest"                                    : "Cest",
-            "itens.codigoServico"                           : "CodigoServico",
-            "itens.origem"                                  : "Origem",
-            "itens.informacoesAdicionais"                   : "InformacoesAdicionais",
-            "itens.gtin"                                    : "Gtin",
-            "itens.cfop"                                    : "Cfop",
-            "itens.impostos.valorAproximadoTotalTributos"   : "ImpostoValorAproximadoTotalTributos",
-            "itens.impostos.icms.st"                        : "ImpostoIcmsSt",
-            "itens.impostos.icms.origem"                    : "ImpostoIcmsOrigem",
-            "itens.impostos.icms.modalidade"                : "ImpostoIcmsModalidade",
-            "itens.impostos.icms.aliquota"                  : "ImpostoIcmsAliquota",
-            "itens.impostos.icms.valor"                     : "ImpostoIcmsValor",
+            "id"                                      : "CodigoNotaFiscalConsumidor",
+            "codigo"                                  : "CodigoSKU",
+            "descricao"                               : "Descricao",
+            "dataEmissao"                             : "DataEmissao",
+            "unidade"                                 : "Unidade",
+            "quantidade"                              : "Quantidade",
+            "valor"                                   : "Valor",
+            "valorTotal"                              : "ValorTotal",
+            "tipo"                                    : "Tipo",
+            "pesoBruto"                               : "PesoBruto",
+            "pesoLiquido"                             : "PesoLiquido",
+            "numeroPedidoCompra"                      : "NumeroPedidoCompra",
+            "classificacaoFiscal"                     : "ClassificacaoFiscal",
+            "cest"                                    : "Cest",
+            "codigoServico"                           : "CodigoServico",
+            "origem"                                  : "Origem",
+            "informacoesAdicionais"                   : "InformacoesAdicionais",
+            "gtin"                                    : "Gtin",
+            "cfop"                                    : "Cfop",
+            "impostos.valorAproximadoTotalTributos"   : "ImpostoValorAproximadoTotalTributos",
+            "impostos.icms.st"                        : "ImpostoIcmsSt",
+            "impostos.icms.origem"                    : "ImpostoIcmsOrigem",
+            "impostos.icms.modalidade"                : "ImpostoIcmsModalidade",
+            "impostos.icms.aliquota"                  : "ImpostoIcmsAliquota",
+            "impostos.icms.valor"                     : "ImpostoIcmsValor",
         },
-        key_cols=["CodigoNotaFiscalConsumidor", "DataEmissao", "CodigoProduto", "Quantidade", "Valor"],   
+        key_cols=["CodigoNotaFiscalConsumidor", "CodigoSKU", "Descricao", 
+                  "DataEmissao", "Unidade", "Quantidade", "Valor", "ValorTotal", "Tipo", "PesoBruto", "PesoLiquido",
+                  "NumeroPedidoCompra", "ClassificacaoFiscal", "Cest", "CodigoServico", "Origem",
+                  "InformacoesAdicionais", "Gtin", "Cfop", "ImpostoValorAproximadoTotalTributos",
+                  "ImpostoIcmsSt", "ImpostoIcmsOrigem", "ImpostoIcmsModalidade", "ImpostoIcmsAliquota", "ImpostoIcmsValor" ],
+        record_path="itens",
+        meta_cols=["id", "dataEmissao"],   
         validation_rules={
             "CodigoNotaFiscalConsumidor"          : {"nullable": False},
         }               
     ),
 
-    "map_bling_nota_fiscal_consumidor_parcela": MappingSpec(
-        src_to_tgt={
-            "id"                            : "CodigoNotaFiscalConsumidor",
-            "dataEmissao"                   : "DataEmissao",
-            "parcelas.data"                 : "DataParcela",
-            "parcelas.valor"                : "ValorParcela",
-            "parcelas.observacoes"          : "Observacoes",
-            "parcelas.formaPagamento.id"    : "CodFormaPagamento",
-        },
-        key_cols=["CodigoNotaFiscalConsumidor", "DataEmissao", "DataParcela", "ValorParcela"],   
-        validation_rules={
-            "CodigoNotaFiscalConsumidor"          : {"nullable": False},
-        }               
-    ),
+    # "map_bling_nota_fiscal_consumidor_parcela": MappingSpec(
+    #     src_to_tgt={
+    #         "id"                   : "CodigoNotaFiscalConsumidor",
+    #         "dataEmissao"          : "DataEmissao",
+    #         "data"                 : "DataParcela",
+    #         "valor"                : "ValorParcela",
+    #         "observacoes"          : "Observacoes",
+    #         "formaPagamento.id"    : "CodFormaPagamento",
+    #     },
+    #     key_cols=["CodigoNotaFiscalConsumidor", "DataEmissao", "DataParcela", 
+    #               "ValorParcela", "Observacoes", "CodFormaPagamento"],   
+    #     record_path="parcelas",
+    #     meta_cols=["id", "dataEmissao"],
+    #     validation_rules={
+    #         "CodigoNotaFiscalConsumidor"          : {"nullable": False},
+    #     }               
+    # ),
 
     # =========== PRODUTOS =========== #
     "map_bling_produtos": MappingSpec(
         src_to_tgt={
-            "id"                        : "CodigoProduto",
-            "nome"                      : "Nome",
-            "codigo"                    : "CodigoSKU",
-            "preco"                     : "Preco",
-            "estoque.minimo"            : "EstoqueMinimo",
-            "estoque.maximo"            : "EstoqueMaximo",
-            "estoque.crossdocking"      : "EstoqueCrossdocking",
-            "estoque.localizacao"       : "EstoqueLocalizacao",
-            "estoque.saldoVirtualTotal" : "EstoqueSaldoVirtualTotal",
-            "tipo"                      : "Tipo",
-            "situacao"                  : "Situacao",
-            "formato"                   : "Formato",
-            "descricaoCurta"            : "DescricaoCurta",
-            "dataValidade"              : "DataValidade",
-            "unidade"                   : "Unidade",
-            "pesoLiquido"               : "PesoLiquido",
-            "pesoBruto"                 : "PesoBruto",
-            "volumes"                   : "Volumes",
-            "itensPorCaixa"             : "ItensPorCaixa",
-            "gtin"                      : "Gtin",
-            "gtinEmbalagem"             : "GtinEmbalagem",
-            "tipoProducao"              : "TipoProducao",
-            "condicao"                  : "Condicao",
-            "freteGratis"               : "FreteGratis",
-            "marca"                     : "Marca",
-            "descricaoComplementar"     : "DescricaoComplementar",
-            "observacoes"               : "Observacoes",
-            "categoria.id"              : "CodCategoria",
-            "tributacao.grupoProduto"   : "GrupoProduto",
+            "id"                            : "CodigoProduto",
+            "nome"                          : "Nome",
+            "codigo"                        : "CodigoSKU",
+            "preco"                         : "Preco",
+            "estoque.minimo"                : "EstoqueMinimo",
+            "estoque.maximo"                : "EstoqueMaximo",
+            "estoque.crossdocking"          : "EstoqueCrossdocking",
+            "estoque.localizacao"           : "EstoqueLocalizacao",
+            "estoque.saldoVirtualTotal"     : "EstoqueSaldoVirtualTotal",
+            "tipo"                          : "Tipo",
+            "situacao"                      : "Situacao",
+            "formato"                       : "Formato",
+            "descricaoCurta"                : "DescricaoCurta",
+            "dataValidade"                  : "DataValidade",
+            "unidade"                       : "Unidade",
+            "pesoLiquido"                   : "PesoLiquido",
+            "pesoBruto"                     : "PesoBruto",
+            "volumes"                       : "Volumes",
+            "itensPorCaixa"                 : "ItensPorCaixa",
+            "gtin"                          : "Gtin",
+            "gtinEmbalagem"                 : "GtinEmbalagem",
+            "tipoProducao"                  : "TipoProducao",
+            "condicao"                      : "Condicao",
+            "freteGratis"                   : "FreteGratis",
+            "marca"                         : "Marca",
+            "descricaoComplementar"         : "DescricaoComplementar",
+            "observacoes"                   : "Observacoes",
+            "categoria.id"                  : "CodCategoria",
+            "tributacao.grupoProduto.id"    : "GrupoProduto",
         },
         key_cols=["CodigoProduto"],   
         validation_rules={
@@ -351,42 +376,42 @@ MAPPINGS = {
         }               
     ),
 
-    "map_bling_produto_tributacao": MappingSpec(
-        src_to_tgt={
-            "id"                            : "Codroduto",
-            "tributacao.origem"                        : "Origem",
-            "tributacao.nFCI"                          : "nFCI",
-            "tributacao.ncm"                           : "NCM",
-            "tributacao.cest"                          : "CEST",
-            "tributacao.codigoListaServicos"           : "CodigoListaServicos",
-            "tributacao.spedTipoItem"                  : "SpedTipoItem",
-            "tributacao.codigoItem"                    : "CodigoItem",
-            "tributacao.percentualTributos"            : "PercentualTributos",
-            "tributacao.valorBaseStRetencao"           : "ValorBaseStRetencao",
-            "tributacao.valorStRetencao"               : "ValorStRetencao",
-            "tributacao.valorICMSSubstituto"           : "ValorICMSSubstituto",
-            "tributacao.codigoExcecaoTipi"             : "CodigoExcecaoTipi",
-            "tributacao.classeEnquadramentoIpi"        : "ClasseEnquadramentoIpi",
-            "tributacao.valorIpiFixo"                  : "ValorIpiFixo",
-            "tributacao.codigoSeloIpi"                 : "CodigoSeloIpi",
-            "tributacao.valorPisFixo"                  : "ValorPisFixo",
-            "tributacao.valorCofinsFixo"               : "ValorCofinsFixo",
-            "tributacao.codigoANP"                     : "CodigoANP",
-            "tributacao.descricaoANP"                  : "DescricaoANP",
-            "tributacao.percentualGLP"                 : "PercentualGLP",
-            "tributacao.percentualGasNacional"         : "PercentualGasNacional",
-            "tributacao.percentualGasImportado"        : "PercentualImportado",
-            "tributacao.valorPartida"                  : "ValorPartida",
-            "tributacao.tipoArmamento"                 : "TipoArmamento",
-            "tributacao.descricaoCompletaArmamento"    : "DescricaoCompletaArmamento",
-            "tributacao.dadosAdicionais"               : "DadosAdicionais",
-            "tributacao.grupoProduto"                  : "GrupoProduto",
-        },
-        key_cols=["Codroduto"],   
-        validation_rules={
-            "Codroduto"          : {"nullable": False, "unique": True},
-        }               
-    ),
+    # "map_bling_produto_tributacao": MappingSpec(
+    #     src_to_tgt={
+    #         "id"                            : "Codroduto",
+    #         "tributacao.origem"                        : "Origem",
+    #         "tributacao.nFCI"                          : "nFCI",
+    #         "tributacao.ncm"                           : "NCM",
+    #         "tributacao.cest"                          : "CEST",
+    #         "tributacao.codigoListaServicos"           : "CodigoListaServicos",
+    #         "tributacao.spedTipoItem"                  : "SpedTipoItem",
+    #         "tributacao.codigoItem"                    : "CodigoItem",
+    #         "tributacao.percentualTributos"            : "PercentualTributos",
+    #         "tributacao.valorBaseStRetencao"           : "ValorBaseStRetencao",
+    #         "tributacao.valorStRetencao"               : "ValorStRetencao",
+    #         "tributacao.valorICMSSubstituto"           : "ValorICMSSubstituto",
+    #         "tributacao.codigoExcecaoTipi"             : "CodigoExcecaoTipi",
+    #         "tributacao.classeEnquadramentoIpi"        : "ClasseEnquadramentoIpi",
+    #         "tributacao.valorIpiFixo"                  : "ValorIpiFixo",
+    #         "tributacao.codigoSeloIpi"                 : "CodigoSeloIpi",
+    #         "tributacao.valorPisFixo"                  : "ValorPisFixo",
+    #         "tributacao.valorCofinsFixo"               : "ValorCofinsFixo",
+    #         "tributacao.codigoANP"                     : "CodigoANP",
+    #         "tributacao.descricaoANP"                  : "DescricaoANP",
+    #         "tributacao.percentualGLP"                 : "PercentualGLP",
+    #         "tributacao.percentualGasNacional"         : "PercentualGasNacional",
+    #         "tributacao.percentualGasImportado"        : "PercentualImportado",
+    #         "tributacao.valorPartida"                  : "ValorPartida",
+    #         "tributacao.tipoArmamento"                 : "TipoArmamento",
+    #         "tributacao.descricaoCompletaArmamento"    : "DescricaoCompletaArmamento",
+    #         "tributacao.dadosAdicionais"               : "DadosAdicionais",
+    #         "tributacao.grupoProduto"                  : "GrupoProduto",
+    #     },
+    #     key_cols=["Codroduto"],   
+    #     validation_rules={
+    #         "Codroduto"          : {"nullable": False, "unique": True},
+    #     }               
+    # ),
 
     "map_bling_produto_grupo": MappingSpec(
         src_to_tgt={
@@ -402,9 +427,9 @@ MAPPINGS = {
 
     "map_bling_produto_categoria": MappingSpec(
         src_to_tgt={
-            "id"            : "CodigoCategoriaProduto",
-            "descricao"     : "Descricao",
-            "ProdutoPai.id" : "CodCategoriaProdutoPai",
+            "id"                : "CodigoCategoriaProduto",
+            "descricao"         : "Descricao",
+            "categoriaPai.id"   : "CodCategoriaProdutoPai",
         },
         key_cols=["CodigoCategoriaProduto"],   
         validation_rules={
@@ -412,23 +437,23 @@ MAPPINGS = {
         }               
     ),
 
-    "map_bling_produto_fornecedor": MappingSpec(
-        src_to_tgt={
-            "id"            : "CodigoProdutoFornecedor",
-            "descricao"     : "Descricao",
-            "codigo"        : "Codigo",
-            "precoCusto"    : "PrecoCusto",
-            "precoCompra"   : "PrecoCompra",
-            "padrao"        : "Padrao",
-            "produto.id"    : "CodProduto",
-            "fornecedor.id" : "CodFornecedor",
-            "garantia"      : "Garantia",
-        },
-        key_cols=["CodigoProdutoFornecedor"],   
-        validation_rules={
-            "CodigoProdutoFornecedor"          : {"nullable": False, "unique": True},
-        }               
-    ),
+    # "map_bling_produto_fornecedor": MappingSpec(
+    #     src_to_tgt={
+    #         "id"            : "CodigoProdutoFornecedor",
+    #         "descricao"     : "Descricao",
+    #         "codigo"        : "Codigo",
+    #         "precoCusto"    : "PrecoCusto",
+    #         "precoCompra"   : "PrecoCompra",
+    #         "padrao"        : "Padrao",
+    #         "produto.id"    : "CodProduto",
+    #         "fornecedor.id" : "CodFornecedor",
+    #         "garantia"      : "Garantia",
+    #     },
+    #     key_cols=["CodigoProdutoFornecedor"],   
+    #     validation_rules={
+    #         "CodigoProdutoFornecedor"          : {"nullable": False, "unique": True},
+    #     }               
+    # ),
 
     # =========== CONTATO =========== #
    "map_bling_contato": MappingSpec(
@@ -441,7 +466,7 @@ MAPPINGS = {
             "telefone"                      : "Telefone",
             "celular"                       : "Celular",
             "fantasia"                      : "NomeFantasia",
-            "tipo"                          : "Tipo",
+            "tipo"                          : "TipoPessoa",
             "indicadorIe"                   : "IndicadorIe",
             "ie"                            : "ie",
             "rg"                            : "rg",
@@ -456,11 +481,25 @@ MAPPINGS = {
             "endereco.geral.uf"             : "UF",
             "endereco.geral.numero"         : "Numero",
             "endereco.geral.complemento"    : "Complemento",
-            "tiposContato.id"               : "CodTipoContato",
         },
         key_cols=["CodigoContato"],   
         validation_rules={
-            "CodigoContato"          : {"nullable": False, "unique": True},
+            "CodigoContato"          : { "unique": True},
+        }               
+    ),
+
+    "map_bling_contato_tipos_contato": MappingSpec(
+        src_to_tgt={
+            "contato_id"    : "CodContato",
+            "id"            : "CodTipoContato" 
+        },
+        key_cols=["CodContato", "CodTipoContato"],
+        record_path="tiposContato",
+        meta_cols=["id"],
+        meta_prefix="contato_",
+        validation_rules={
+            "CodContato"      : {"nullable": False},
+            "CodTipoContato"  : {"nullable": False},
         }               
     ),
 
@@ -485,7 +524,7 @@ MAPPINGS = {
             "telefone"                      : "Telefone",
             "celular"                       : "Celular",
             "fantasia"                      : "NomeFantasia",
-            "tipo"                          : "Tipo",
+            "tipo"                          : "TipoPessoa",
             "indicadorIe"                   : "IndicadorIe",
             "ie"                            : "ie",
             "rg"                            : "rg",
@@ -500,7 +539,6 @@ MAPPINGS = {
             "endereco.geral.uf"             : "UF",
             "endereco.geral.numero"         : "Numero",
             "endereco.geral.complemento"    : "Complemento",
-            "tiposContato.id"               : "CodTipoContato",
         },
         key_cols=["CodigoContato"],   
         validation_rules={
@@ -508,12 +546,181 @@ MAPPINGS = {
         }               
     ),
 
+    # =========== NATUREZA OPERACAO =========== #
+   "map_bling_natureza_operacao": MappingSpec(
+        src_to_tgt={
+            "id"        : "CodigoNaturezaOperacao",
+            "situacao"  : "Situacao",
+            "padrao"    : "Padrao",
+            "descricao" : "Descricao",
+        },
+        key_cols=["CodigoNaturezaOperacao"],   
+        validation_rules={
+            "CodigoNaturezaOperacao"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    # =========== VENDEDORES =========== #
+   "map_bling_vendedores": MappingSpec(
+        src_to_tgt={
+            "id"                : "CodigoVendedor",
+            "descontoLimite"    : "DescontoLimite",
+            "loja.id"           : "CodLoja",
+            "descontoMaximo"    : "ComissaoDescontoMaximo",
+            "aliquota"          : "ComissaoAliquota",
+            "contato.id"        : "CodContato",
+        },
+        key_cols=["CodigoVendedor"],   
+        record_path="comissoes",
+        meta_cols=["id", "descontoLimite", "loja.id", "contato.id"],
+        validation_rules={
+            "CodigoVendedor"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+   # =========== PEDIDO =========== #
+   "map_bling_pedido_compra": MappingSpec(
+        src_to_tgt={
+            "id"                            : "CodigoPedidoCompra",
+            "numero"                        : "Numero",
+            "data"                          : "DataPedidoCompra",
+            "dataPrevista"                  : "DataPrevista",
+            "totalProdutos"                 : "TotalProdutos",
+            "total"                         : "Total",
+            "fornecedor.id"                 : "CodContatoFornecedor",
+            "situacao.valor"                : "SituacaoValor",
+            "ordemCompra"                   : "OrdemCompra",
+            "observacoes"                   : "Observacoes",
+            "observacoesInternas"           : "ObservacoesInternas",
+            "desconto.valor"                : "DescontoValor",
+            "desconto.unidade"              : "DescontoUnidade",
+            "categoria.id"                  : "CodCategoriaFinanceira",
+            "tributacao.totalICMS"          : "TributacaoTotalICMS",
+            "tributacao.totalIPI"           : "TributacaoTotalIPI",
+            "transporte.frete"              : "TransporteFrete",
+            "transporte.transportador"      : "TransporteTransportador",
+            "transporte.fretePorConta"      : "TransporteFretePorConta",
+            "transporte.pesoBruto"          : "TransportePesoBruto",
+            "transporte.volumes"            : "TransporteVolumes",
+        },
+        key_cols=["CodigoPedidoCompra"],   
+        validation_rules={
+            "CodigoPedidoCompra"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    "map_bling_pedido_compra_item": MappingSpec(
+        src_to_tgt={
+            "id"                        : "CodigoPedidoCompra",
+            "data"                      : "DataPedidoCompra",
+            "descricao"                 : "Descricao",
+            "codigoFornecedor"          : "CodigoProdutoFornecedor",
+            "unidade"                   : "Unidade",
+            "valor"                     : "Valor",
+            "quantidade"                : "Quantidade",
+            "aliquotaIPI"               : "AliquotaIPI",
+            "descricaoDetalhada"        : "DescricaoDetalhada",
+            "notaFiscal.id"             : "CodNotaFiscal",
+            "notaFiscal.quantidade"     : "NotaFiscalQuantidade",
+            "produto.id"                : "CodProduto",
+        },
+        key_cols=["CodigoPedidoCompra", "DataPedidoCompra", "Descricao", "CodigoProdutoFornecedor", "Unidade",
+                  "Valor", "Quantidade", "AliquotaIPI", "DescricaoDetalhada", "CodNotaFiscal", "NotaFiscalQuantidade",
+                  "CodProduto"],  
+        record_path="itens",
+        meta_cols=["id", "data"], 
+        validation_rules={
+            "CodigoPedidoCompra"          : {"nullable": False},
+        }               
+    ),
 
+    "map_bling_pedido_venda": MappingSpec(
+        src_to_tgt={
+            "id"                                : "CodigoPedidoVenda",
+            "numero"                            : "Numero",
+            "numeroLoja"                        : "NumeroLoja",
+            "data"                              : "DataPedidoVenda",
+            "dataSaida"                         : "DataSaida",
+            "dataPrevista"                      : "DataPrevista",
+            "totalProdutos"                     : "TotalProdutos",
+            "total"                             : "Total",
+            "contato.id"                        : "CodContato",
+            "situacao.id"                       : "CodSituacao",
+            "situacao.valor"                    : "SituacaoValor",
+            "loja.id"                           : "CodLoja",
+            "numeroPedidoCompra"                : "NumeroPedidoCompra",
+            "outrasDespesas"                    : "OutrasDespesas",
+            "observacoes"                       : "Observacoes",
+            "observacoesInternas"               : "ObservacoesInternas",
+            "desconto.valor"                    : "DescontoValor",
+            "desconto.unidade"                  : "DescontoUnidade",
+            "categoria.id"                      : "CodCategoriaFinanceira",
+            "notaFiscal.id"                     : "CodNotaFiscal",
+            "tributacao.totalICMS"              : "TributacaoTotalICMS",
+            "tributacao.totalIPI"               : "TributacaoTotalIPI",
+            "transporte.fretePorConta"          : "TransporteFretePorConta",
+            "transporte.quantidadeVolumes"      : "TransporteQuantidadeVolumes",
+            "transporte.prazoEntrega"           : "TransportePrazoEntrega",
+            "transporte.contato.id"             : "TransporteCodContato",
+            "transporte.etiqueta.nome"          : "TransporteEtiquetaNome",
+            "vendedor.id"                       : "CodVendedor",
+            "intermediador.cnpj"                : "IntermediadorCNPJ",
+            "intermediador.nomeUsuario"         : "IntermediadorNomeUsuario",
+            "taxas.taxaComissao"                : "TaxaComissao",
+            "taxas.custoFrete"                  : "TaxaCustoFrete",
+            "taxas.valorBase"                   : "TaxaValorBase",
+        },
+        key_cols=["CodigoPedidoVenda"],  
+        validation_rules={
+            "CodigoPedidoVenda"          : {"nullable": False, "unique": True},
+        }               
+    ),
 
+    "map_bling_pedido_venda_item": MappingSpec(
+        src_to_tgt={
+            "pedido_venda_item_id"      : "CodigoPedidoVenda",
+            "id"                        : "CodigoPedidoVendaItem",
+            "pedido_venda_item_data"    : "DataPedidoVenda",
+            "codigo"                    : "CodigoSKU",
+            "unidade"                   : "Unidade",
+            "quantidade"                : "Quantidade",
+            "desconto"                  : "Desconto",
+            "valor"                     : "Valor",
+            "aliquotaIPI"               : "AliquotaIPI",
+            "descricao"                 : "Descricao",
+            "descricaoDetalhada"        : "DescricaoDetalhada",
+            "produto.id"                : "CodProduto",
+            "comissao.base"             : "ComissaoBase",
+            "comissao.aliquota"         : "ComissaoAliquota",
+            "comissao.valor"            : "ComissaoValor",
+        },
+        key_cols=["CodigoPedidoVendaItem", "CodigoSKU", "Unidade", "Quantidade", "Desconto", "Valor", "AliquotaIPI",
+                   "Descricao", "DescricaoDetalhada", "CodProduto", "ComissaoBase", "ComissaoAliquota", "ComissaoValor"], 
+        record_path="itens",
+        meta_cols=["id", "data"],
+        meta_prefix="pedido_venda_item_", 
+        validation_rules={
+            "CodigoPedidoVenda"          : {"nullable": False},
+        }               
+    ),
 
-
-
+    # "map_bling_pedido_venda_parcela": MappingSpec(
+    #     src_to_tgt={
+    #         "id"                        : "CodigoPedidoVenda",
+    #         "pedido_venda_parcela_id"   : "CodigoPedidoVendaParcela",
+    #         "pedido_venda_parcela_data" : "DataPedidoVenda",
+    #         "dataVencimento"            : "DataVencimento",
+    #         "valor"                     : "Valor",
+    #         "observacoes"               : "Observacoes",
+    #         "formaPagamento.id"         : "CodFormaPagamento",
+    #     },
+    #     key_cols=["CodigoPedidoVendaParcela", "DataPedidoVenda", "DataVencimento", 
+    #               "Valor", "Observacoes", "CodFormaPagamento"], 
+    #     record_path="parcelas",
+    #     meta_cols=["id", "data"], 
+    #     meta_prefix="pedido_venda_parcela_", 
+    #     validation_rules={
+    #         "CodigoPedidoVenda"          : {"nullable": False},
+    #     }               
+    # ),
 }

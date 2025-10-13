@@ -69,24 +69,47 @@ class MySQLStrategy(DbStrategy):
         
         return inserted, updated
 
-    def execute_procedure(self, conn: Connection, proc_name: str, params: Dict[str, Any] = None) -> Tuple[int, int]:
-        log.debug(f"Executando procedure MySQL: {proc_name}")
-        
-        # Constrói a lista de parâmetros para a chamada
-        param_str = ", ".join([f":{k}" for k in (params or {})])
-        
-        # A chamada agora inclui os parâmetros, se existirem
-        sql_call = f"CALL {proc_name}(@p_inserted_rows, @p_updated_rows, {param_str});"
-        
-        conn.execute(text(sql_call), (params or {}))
-        result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
-        
-        if result and result[0] is not None:
-            return int(result[0]), int(result[1])
-        
-        log.warning(f"Procedure MySQL '{proc_name}' não retornou contagens.")
-        return 0, 0
+    def execute_procedure(self, conn: Connection, proc_config: Dict[str, Any]) -> Tuple[int, int]:
+        proc_name = proc_config["sql"]
+        # Pega a flag da configuração. O padrão é True se a chave não existir.
+        use_out_params = proc_config.get("use_out_params", True)
 
+        log.debug(f"Executando procedure MySQL: {proc_name} (use_out_params={use_out_params})")
+        
+        # 1. Monta a lista de parâmetros de entrada (IN), se houver.
+        params = proc_config.get("params", {})
+        in_params_list = [f":{k}" for k in params.keys()] if params else []
+        
+        all_params_list = in_params_list
+        
+        # 2. SÓ adiciona os parâmetros de SAÍDA (OUT) se a flag for True.
+        if use_out_params:
+            out_params_list = ['@p_inserted_rows', '@p_updated_rows']
+            # Junta as duas listas, garantindo que os de saída venham primeiro se for o padrão
+            all_params_list = out_params_list + in_params_list
+            
+        # 3. Constrói a string de parâmetros de forma segura.
+        params_str = ", ".join(all_params_list)
+        
+        # 4. Monta a chamada SQL final, que agora é flexível.
+        sql_call = f"CALL {proc_name}({params_str});"
+        
+        try:
+            conn.execute(text(sql_call), (params or {}))
+            
+            # 5. SÓ tenta buscar o resultado se os parâmetros de saída foram usados.
+            if use_out_params:
+                result = conn.execute(text("SELECT @p_inserted_rows, @p_updated_rows;")).fetchone()
+                if result and result[0] is not None:
+                    return int(result[0]), int(result[1])
+                log.warning(f"Procedure MySQL '{proc_name}' deveria retornar contagens, mas não o fez.")
+            
+            # Se não usa parâmetros de saída, ou se eles falharam, retorna 0,0.
+            return 0, 0
+        except Exception as e:
+            log.error(f"Erro ao executar a procedure '{proc_name}'. SQL gerado: {sql_call}")
+            raise e
+    
     def _build_mysql_update_statement(self, table: str, temp_table: str, keys: List[str], all_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> str:
         target = f"`{schema}`.`{table}`" if schema else f"`{table}`"
         join = " AND ".join([f"dw.`{k}` = tmp.`{k}`" for k in keys])

@@ -19,6 +19,8 @@ class Job:
 
     # --- Parâmetros gerais ---
     params: Optional[Dict[str, Any]] = None
+    param_matrix: Optional[Dict[str, List[Any]]] = None
+    incremental_config: Optional[Dict[str, Any]] = None
 
     # --- Parâmetros Específicos por Tipo de Adapter ---
     # API
@@ -28,7 +30,7 @@ class Job:
     data_path: Optional[str] = None
     detail_data_path: Optional[str] = None
     enrich_by_id: bool = False
-    enrichment_strategy: str = 'concurrent'  # Estratégia: 'concurrent' ou 'sequential'
+    enrichment_strategy: str = 'sequential'  # Estratégia: 'concurrent' ou 'sequential'
     requests_per_minute: Optional[int] = 60  # Limite de requisições para a extração principal
     enrichment_requests_per_minute: Optional[int] = None # Limite para o enriquecimento (se None, usa o principal)
     delay_between_pages_ms: Optional[int] = None
@@ -109,9 +111,15 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         params={
-            "dataEmissaoInicial": "2026-01-01",
-            "dataEmissaoFinal": "2026-12-31",
-            # "criterio": 3
+            # "dataEmissaoInicial": "2026-01-01",
+            # "dataEmissaoFinal": "2026-12-31",
+        },
+        param_matrix={ "situacao": [1, 2, 3, 4, 5] },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataEmissaoInicial",
+            "date_param_end": "dataEmissaoFinal",
+            "days_to_load": 30
         }
     ),  
 
@@ -130,34 +138,43 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
-        params={
-            # "dataInicial": "2025-01-01",
-            # "dataFinal": "2025-12-31",
-            # "criterio": 3
+        # params={
+        #     "dataInicial": "2025-01-01",
+        #     "dataFinal": "2025-12-31",
+        #     # "criterio": 3
+        # },
+        param_matrix={
+            "situacoes[]": [1, 2, 3, 4, 5],
+        },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataInicial",
+            "date_param_end": "dataFinal",
+            "days_to_load": 30
         }
     ),
 
-    Job(
-        name="Carga STG Bling Contas a Receber Boleto",
-        map_id="map_bling_contas_receber_boleto",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_ContasReceberBoleto",
-        endpoint="contas/receber/boletos",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-        params={
-            "dataEmissaoInicial": "2021-01-01",
-            "dataEmissaoFinal": "2021-12-31",
-            # "criterio": 3
-        }
-    ),
+    # Job(
+    #     name="Carga STG Bling Contas a Receber Boleto",
+    #     map_id="map_bling_contas_receber_boleto",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_ContasReceberBoleto",
+    #     endpoint="contas/receber/boletos",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     params={
+    #         "dataEmissaoInicial": "2021-01-01",
+    #         "dataEmissaoFinal": "2021-12-31",
+    #         # "criterio": 3
+    #     }
+    # ),
 
     Job(
         name="Carga STG Bling Contas Contabeis",
@@ -212,10 +229,18 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         params={
-            "dataEmissaoInicial": "2020-01-01",
-            "dataEmissaoFinal": "2020-12-31",
-            "tipo": 0,
-            "criterio": 3
+            # "dataEmissaoInicial": "2020-01-01",
+            # "dataEmissaoFinal": "2020-12-31",
+        },
+        param_matrix={
+            "situacao": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            "tipo": [0, 1]
+        },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataEmissaoInicial",
+            "date_param_end": "dataEmissaoFinal",
+            "days_to_load": 30
         }
     ),
 
@@ -234,24 +259,52 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        params = {
+            # "dataEmissaoInicial" : "2020-01-01",
+            # "dataEmissaoFinal" : "2020-12-31"
+        },
+        param_matrix={
+            "situacao": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            "tipo": [0, 1]
+        },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataEmissaoInicial",
+            "date_param_end": "dataEmissaoFinal",
+            "days_to_load": 30
+        }
     ),
 
-    Job(
-        name="Carga STG Bling Nota Fiscal Parcela",
-        map_id="map_bling_nota_fiscal_parcela",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_NotaFiscalParcela",
-        endpoint="nfe",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-    ),
+    # Job(
+    #     name="Carga STG Bling Nota Fiscal Parcela",
+    #     map_id="map_bling_nota_fiscal_parcela",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_NotaFiscalParcela",
+    #     endpoint="nfe",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     params = {
+    #         # "dataEmissaoInicial" : "2020-01-01",
+    #         # "dataEmissaoFinal" : "2020-12-31"
+    #     },
+    #     param_matrix={
+    #         "situacao": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    #         "tipo": [0, 1]
+    #     },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataEmissaoInicial",
+    #         "date_param_end": "dataEmissaoFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 
     # ========= NOTA FISCAL CONSUMIDOR ========= #
     Job(
@@ -269,6 +322,20 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        param_matrix={
+            "situacao": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            "tipo": [0, 1]
+        },
+        # params = {
+        # "dataEmissaoInicial" : "2026-01-01",
+        # "dataEmissaoFinal" : "2026-12-31"
+        # },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataEmissaoInicial",
+            "date_param_end": "dataEmissaoFinal",
+            "days_to_load": 30
+        }
     ),
 
     Job(
@@ -286,24 +353,48 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        param_matrix={
+            "situacao": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,12],
+            "tipo": [0, 1]
+        },
+        # params = {
+        # "dataEmissaoInicial" : "2025-01-01",
+        # "dataEmissaoFinal" : "2025-12-31"
+        # },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataEmissaoInicial",
+            "date_param_end": "dataEmissaoFinal",
+            "days_to_load": 30
+        }
     ),
 
-    Job(
-        name="Carga STG Bling Nota Fiscal Consumidor Parcela",
-        map_id="map_bling_nota_fiscal_consumidor_parcela",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_NotaFiscalConsumidorParcela",
-        endpoint="nfce",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-    ),
+    # Job(
+    #     name="Carga STG Bling Nota Fiscal Consumidor Parcela",
+    #     map_id="map_bling_nota_fiscal_consumidor_parcela",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_NotaFiscalConsumidorParcela",
+    #     endpoint="nfce",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     param_matrix={
+    #         "situacao": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,12],
+    #         "tipo": [0, 1]
+    #     },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataEmissaoInicial",
+    #         "date_param_end": "dataEmissaoFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 
     # ========= PRODUTOS ========= #
     Job(
@@ -321,6 +412,12 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        params = { 
+            "criterio" : 5, 
+            # "tipo" : "T" , 
+            # "dataInclusaoInicial" : "2025-01-01", 
+            # "dataInclusaoFinal" : "2025-12-31"
+            }
     ),
 
     Job(
@@ -357,39 +454,39 @@ JOBS: List[Job] = [
         enrichment_requests_per_minute=150,
     ),
 
-    Job(
-        name="Carga STG Bling Produtos Fornecedor",
-        map_id="map_bling_produto_fornecedor",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_ProdutoFornecedor",
-        endpoint="produtos/fornecedores",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-    ),
+    # Job(
+    #     name="Carga STG Bling Produtos Fornecedor",
+    #     map_id="map_bling_produto_fornecedor",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_ProdutoFornecedor",
+    #     endpoint="produtos/fornecedores",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    # ),
 
-    Job(
-        name="Carga STG Bling Produtos Tributacao",
-        map_id="map_bling_produto_tributacao",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_ProdutoTributacao",
-        endpoint="produtos",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-    ),
+    # Job(
+    #     name="Carga STG Bling Produtos Tributacao",
+    #     map_id="map_bling_produto_tributacao",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_ProdutoTributacao",
+    #     endpoint="produtos",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    # ),
 
     # ========= CONTATO ========= #
     Job(
@@ -397,7 +494,7 @@ JOBS: List[Job] = [
         map_id="map_bling_contato",
         type="api",
         db_name="DB_STG_NAME",
-        table="tbSTG_BLING_Contato",
+        table="tbSTG_BLING_Contatos",
         endpoint="contatos",
         auth=BLING_OAUTH_CONFIG,
         paging=PAGING,
@@ -407,6 +504,24 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        params={ "criterio" : 1}
+    ),
+
+    Job(
+        name="Carga STG Bling Contato Tipos Contato",
+        map_id="map_bling_contato_tipos_contato",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_ContatoTiposContato",
+        endpoint="contatos",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path="data",
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150
     ),
 
     Job(
@@ -418,12 +533,8 @@ JOBS: List[Job] = [
         endpoint="contatos/tipos",
         auth=BLING_OAUTH_CONFIG,
         paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
         data_path= "data",
-        detail_data_path="data",
         requests_per_minute=180,
-        enrichment_requests_per_minute=150,
     ),
 
     Job(
@@ -431,8 +542,36 @@ JOBS: List[Job] = [
         map_id="map_bling_contato_consumidor_final",
         type="api",
         db_name="DB_STG_NAME",
-        table="tbSTG_BLING_Contato",
-        endpoint="contatos/tipos",
+        table="tbSTG_BLING_Contatos",
+        endpoint="contatos/consumidor-final",
+        auth=BLING_OAUTH_CONFIG,
+        data_path= "data",
+        requests_per_minute=180,
+        params={ "criterio" : 1}
+    ),
+
+    # ========= NATUREZA OPERACAO ========= #
+    Job(
+        name="Carga STG Bling Natureza Operacao",
+        map_id="map_bling_natureza_operacao",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_NaturezaOperacao",
+        endpoint="naturezas-operacoes",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        data_path= "data",
+        requests_per_minute=180,
+    ),
+
+    # ========= VENDEDORES ========= #
+    Job(
+        name="Carga STG Bling Vendedores",
+        map_id="map_bling_vendedores",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_Vendedores",
+        endpoint="vendedores",
         auth=BLING_OAUTH_CONFIG,
         paging=PAGING,
         enrich_by_id=True,
@@ -441,11 +580,144 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        params = { "situacaoContato" : "T"}
     ),
 
+   # ========= PEDIDOS ========= #
+    Job(
+        name="Carga STG Bling Pedido Compra",
+        map_id="map_bling_pedido_compra",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_PedidoCompra",
+        endpoint="pedidos/compras",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path= "data",
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
+        # params = {
+        #     "dataInicial" : "2025-01-01",
+        #     "dataFinal" : "2025-12-31"
+        # },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataInicial",
+            "date_param_end": "dataFinal",
+            "days_to_load": 30
+        }
+    ),
 
+    Job(
+        name="Carga STG Bling Pedido Compra Item",
+        map_id="map_bling_pedido_compra_item",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_PedidoCompraItem",
+        endpoint="pedidos/compras",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path= "data",
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
+        # params = {
+        # "dataInicial" : "2025-01-01",
+        # "dataFinal" : "2025-12-31"
+        # },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataInicial",
+            "date_param_end": "dataFinal",
+            "days_to_load": 30
+        }
+    ),
 
+    Job(
+        name="Carga STG Bling Pedido Venda",
+        map_id="map_bling_pedido_venda",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_PedidoVenda",
+        endpoint="pedidos/vendas",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path= "data",
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
+        # params = {
+        # "dataInicial" : "2025-01-01",
+        # "dataFinal" : "2025-12-31"
+        # },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataInicial",
+            "date_param_end": "dataFinal",
+            "days_to_load": 30
+        }
+    ),
 
+    Job(
+        name="Carga STG Bling Pedido Venda Item",
+        map_id="map_bling_pedido_venda_item",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_PedidoVendaItem",
+        endpoint="pedidos/vendas",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path= "data",
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
+        # params={
+        #     "dataInicial": "2025-01-01",
+        #     "dataFinal": "2025-12-31",
+        # },
+        incremental_config={
+            "enabled": True,
+            "date_param_start": "dataInicial",
+            "date_param_end": "dataFinal",
+            "days_to_load": 30
+        }
+    ),
+
+    # Job(
+    #     name="Carga STG Bling Pedido Venda Parcela",
+    #     map_id="map_bling_pedido_venda_parcela",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_PedidoVendaParcela",
+    #     endpoint="pedidos/vendas",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     params={
+    #         # "dataInicial": "2025-01-01",
+    #         # "dataFinal": "2025-12-31",
+    #     },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataInicial",
+    #         "date_param_end": "dataFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 ]
 
 # ===================================================================
@@ -459,7 +731,7 @@ DW_OBJECTS = [
     # --- GRUPO 1: Funções e Views base ---
     # Estes objetos não têm dependências ou dependem apenas de tabelas.
     # [
-    #     {"db_name": "DB_DW_NAME", "file": "functions/fn_format_date.sql"},
+        #{"db_name": "DB_DW_NAME", "file": "procedures/spCarga_DimContaFinanceira.sql"},
     #     {"db_name": "DB_DW_NAME", "file": "views/vw_base_clientes.sql"},
     # ],
     # # --- GRUPO 2: Views que dependem do Grupo 1 ---
@@ -477,12 +749,30 @@ DW_OBJECTS = [
 # DEFINIÇÃO DAS PROCEDURES DE CARGA (Ordem de Execução)
 # ===================================================================
 # Esta lista define a ORDEM de EXECUÇÃO das procedures de carga de dados.
+# PROCS = [
+#       # GRUPO 1: Carga das Tabelas de Dimensão.
+#     # [
+#     #     {
+#     #         "name": "spCarga_DimDREFormatos", # Nome da procedure no banco
+#     #         # Configuração incremental opcional
+#     #         "incremental_config": {
+#     #             "enabled": True,
+#     #             "date_column": "DataReferencia", # Coluna de data na tabela STG
+#     #             "days_to_load": 30
+#     #         }
+#     #     },
+#     #     # Exemplo de uma procedure que sempre fará carga completa
+#         # {"name": "spSetup_DimTempo('2015-01-01', '2035-12-31')"},
+#         # {"name": "spSetup_DimCfop()"},
+#         {"name": "spCarga_MainDW", "sql": "spCarga_MainDW"}
+    
+#     # ]
+# ]
+
+PROC_GRP_GERAL = [
+    {"name": "spCarga_MainDW", "sql": "spCarga_MainDW", "use_out_params": False},
+]
+
 PROCS = [
-    # [
-    #     {"db_name": "DB_DW_NAME", "sql": "spCarga_DimClientes"},
-    #     {"db_name": "DB_DW_NAME", "sql": "spCarga_DimProdutos"},
-    # ],
-    # [
-    #     {"db_name": "DB_DW_NAME", "sql": "spCarga_FatoPedidos"},
-    # ]
+    PROC_GRP_GERAL
 ]

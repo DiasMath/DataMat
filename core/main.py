@@ -122,7 +122,8 @@ def run_tenant_pipeline(
     preview: bool = False,
     export: bool = False,
     limit: int = 0,
-    workers_per_client: int = 2  # Contrato 1: Aceita o argumento do orquestrador
+    workers_per_client: int = 2,
+    procs_only: bool = False
 ):
     """
     Executa o pipeline para um tenant, respeitando os contratos de chamada e retorno.
@@ -130,7 +131,7 @@ def run_tenant_pipeline(
     log.info(f"================ INICIANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
     stg_results = []
-    total_rows_pipeline = 0 # Contrato 3: Inicializa o acumulador de linhas para o pipeline inteiro
+    total_rows_pipeline = 0
 
     try:
         # Lógica de carregamento de configuração (permanece a mesma)
@@ -165,73 +166,77 @@ def run_tenant_pipeline(
         )
         datamat = DataMat(engine=engine, config=datamat_config)
 
-        for job_spec in jobs_to_run:
-            try:
-                # Lógica incremental (permanece a mesma)
-                inc_config = getattr(job_spec, 'incremental_config', None)
-                if inc_config and inc_config.get("enabled", False):
-                    days = inc_config.get("days_to_load", 30)
-                    param_start = inc_config.get("date_param_start")
-                    param_end = inc_config.get("date_param_end")
-                    if param_start and param_end:
-                        end_date = datetime.now()
-                        start_date = end_date - timedelta(days=days)
-                        date_format = "%Y-%m-%d"
-                        if job_spec.params is None: 
-                            job_spec.params = {}
-                        job_spec.params[param_start] = start_date.strftime(date_format)
-                        job_spec.params[param_end] = end_date.strftime(date_format)
-                        log.info(f"[{job_spec.name}] Carga incremental ativada. Carregando dados de {days} dias.")
+        # ALTERAÇÃO: A execução dos jobs de ETL agora é condicional
+        if not procs_only:
+            log.info("Iniciando execução dos jobs de STG...")
+            for job_spec in jobs_to_run:
+                try:
+                    # Lógica incremental (permanece a mesma)
+                    inc_config = getattr(job_spec, 'incremental_config', None)
+                    if inc_config and inc_config.get("enabled", False):
+                        days = inc_config.get("days_to_load", 30)
+                        param_start = inc_config.get("date_param_start")
+                        param_end = inc_config.get("date_param_end")
+                        if param_start and param_end:
+                            end_date = datetime.now()
+                            start_date = end_date - timedelta(days=days)
+                            date_format = "%Y-%m-%d"
+                            if job_spec.params is None: 
+                                job_spec.params = {}
+                            job_spec.params[param_start] = start_date.strftime(date_format)
+                            job_spec.params[param_end] = end_date.strftime(date_format)
+                            log.info(f"[{job_spec.name}] Carga incremental ativada. Carregando dados de {days} dias.")
 
-                effective_limit = limit if preview or export else 0
-                adapter = get_job_adapter(job_spec, limit=effective_limit)
-                mapping_spec = MAPPINGS.get(job_spec.map_id)
-                
-                if export:
-                    datamat.export_job_to_excel(adapter, job_spec, mapping_spec, tenant_id, ROOT_DIR, limit)
-                    continue
-                
-                if preview:
-                    log.info(f"Executando em modo PREVIEW para o job '{job_spec.name}'")
-                    df = datamat.run_etl_job_extract_only(adapter, job_spec, mapping_spec)
-                    print(f"\n--- Preview do Job: {job_spec.name} ---")
-                    print(df.head(limit))
-                    continue
+                    effective_limit = limit if preview or export else 0
+                    adapter = get_job_adapter(job_spec, limit=effective_limit)
+                    mapping_spec = MAPPINGS.get(job_spec.map_id)
+                    
+                    if export:
+                        datamat.export_job_to_excel(adapter, job_spec, mapping_spec, tenant_id, ROOT_DIR, limit)
+                        continue
+                    
+                    if preview:
+                        log.info(f"Executando em modo PREVIEW para o job '{job_spec.name}'")
+                        df = datamat.run_etl_job_extract_only(adapter, job_spec, mapping_spec)
+                        print(f"\n--- Preview do Job: {job_spec.name} ---")
+                        print(df.head(limit))
+                        continue
 
-                # --- Ponto Crítico da Correção ---
-                # Contrato 2: Respeita o retorno (job_name, inserted, updated) de datamat.py
-                result_tuple = datamat.run_etl_job(adapter, job_spec, mapping_spec)
-                stg_results.append(result_tuple)
-                
-                # Contrato 3: Acumula o total de linhas para o resumo final
-                inserted_rows = result_tuple[1]
-                updated_rows = result_tuple[2]
-                total_rows_pipeline += inserted_rows + updated_rows
-                # --- Fim do Ponto Crítico ---
+                    result_tuple = datamat.run_etl_job(adapter, job_spec, mapping_spec)
+                    stg_results.append(result_tuple)
+                    
+                    inserted_rows = result_tuple[1]
+                    updated_rows = result_tuple[2]
+                    total_rows_pipeline += inserted_rows + updated_rows
 
-            except (DataMatError, Exception) as e:
-                log.critical(f"Job '{job_spec.name}' falhou com erro inesperado: {e}", exc_info=True)
-                datamat.log_etl_error(process_name=job_spec.name, message=str(e))
-                # Interrompe a execução para este tenant e propaga a falha
-                raise 
+                except (DataMatError, Exception) as e:
+                    log.critical(f"Job '{job_spec.name}' falhou com erro inesperado: {e}", exc_info=True)
+                    datamat.log_etl_error(process_name=job_spec.name, message=str(e))
+                    raise 
+        else:
+            log.info("Flag '--procs-only' ativa. Pulando a execução dos jobs de STG.")
 
         proc_results = []
-        if not (job_names or preview or export) and PROCS:
-            for group in PROCS:
-                log.info("Executando grupo de procedures...")
-                for proc in group:
-                    proc_results.append(datamat.run_dw_procedure(proc))
+        # ALTERAÇÃO: A lógica agora permite a execução de procedures de forma isolada
+        if procs_only or not (job_names or preview or export):
+            if PROCS:
+                log.info("Iniciando execução das procedures do DW...")
+                for group in PROCS:
+                    for proc in group:
+                        proc_results.append(datamat.run_dw_procedure(proc))
+            else:
+                log.info("Nenhuma procedure definida para execução.")
+        else:
+            log.info("Procedures não executadas devido aos parâmetros de execução (--jobs, --preview, --export).")
         
         datamat.log_summary(tenant_id, stg_results, proc_results)
 
     except Exception as e:
         log.critical(f"Erro inesperado no pipeline do tenant '{tenant_id}': {e}", exc_info=True)
-        # Contrato 3: Retorna -1 em caso de qualquer falha no pipeline
         return -1, {"error": str(e), "traceback": traceback.format_exc()}
     
     log.info(f"================ FINALIZANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
-    # Contrato 3: Retorna o total de linhas acumulado e os detalhes no final da execução bem-sucedida
     return total_rows_pipeline, stg_results
 
 if __name__ == "__main__":
@@ -241,6 +246,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--preview", action="store_true", help="Modo de preview.")
     parser.add_argument("-e", "--export", action="store_true", help="Exporta para CSV.")
     parser.add_argument("-l", "--linhas", type=int, default=10, help="Linhas para o preview.")
+    parser.add_argument("-po","--procs-only", action="store_true", help="Executa apenas as procedures do DW.")
     args = parser.parse_args()
     
     tenants_to_run = args.tenants
@@ -258,5 +264,6 @@ if __name__ == "__main__":
             job_names=args.jobs,
             preview=args.preview,
             export=args.export,
-            limit=args.linhas
+            limit=args.linhas,
+            procs_only=args.procs_only
         )
