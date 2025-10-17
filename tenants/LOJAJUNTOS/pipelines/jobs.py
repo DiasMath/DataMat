@@ -38,6 +38,7 @@ class Job:
     # Arquivo (File)
     file: Optional[str] = None
     sheet: Optional[str] = None
+    delimiter: Optional[str] = ';'
 
     # Banco de Dados (DB)
     source_url: Optional[str] = None
@@ -175,6 +176,16 @@ JOBS: List[Job] = [
     #         # "criterio": 3
     #     }
     # ),
+
+    Job(
+        name="Carga Temporaria STG Bling File Contas Pagar e Receber",
+        map_id="temp_map_bling_file_contas_pagar_e_receber",
+        type="file",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_FILE_MovimentacoesFinanceiras",
+        file="tenants/LOJAJUNTOS/data/movimentacoes_financeiras.csv",
+        delimiter=';'
+    ),
 
     Job(
         name="Carga STG Bling Contas Contabeis",

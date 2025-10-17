@@ -10,7 +10,7 @@ class DatabaseSourceAdapter:
         self.query = query
         self.params = dict(params or {}) # Os parâmetros vêm do Job
 
-    def extract(self) -> pd.DataFrame:
+    def extract_raw(self) -> pd.DataFrame:
         """
         Executa a query no banco de dados de origem.
         Os parâmetros definidos no 'params' do Job são passados de forma segura

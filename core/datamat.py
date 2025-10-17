@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
+import hashlib
 import logging
 import os
 import re
@@ -180,21 +181,51 @@ class DataMat:
     # --- MÉTODOS PRIVADOS DO FLUXO DE ETL ---
     
     def _extract_and_transform(self, adapter: Any, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
-        """Agrupa as etapas de extração e transformação."""
-        # 1. Extrai os dados brutos (ainda no formato JSON/Dict aninhado)
+        """Agrupa as etapas de extração e transformação, com logs de depuração detalhados."""
+        self.log.info(f"[{job_name}] Iniciando processo de transformação...")
+
+        # 1. Extrai os dados brutos
         raw_data = self._extract(adapter, job_name)
-        if not raw_data:
+
+        if raw_data is None or (isinstance(raw_data, pd.DataFrame) and raw_data.empty):
+            self.log.warning(f"[{job_name}] Extração não retornou dados. Pulando transformações.")
             return pd.DataFrame()
 
-        # 2. Normaliza os dados usando as regras do mapping_spec
-        df = self._normalize_data(raw_data, mapping_spec, job_name)
+        self.log.debug(f"[{job_name}] Tipo de dado extraído: {type(raw_data)}")
+
+        # ===================== CORREÇÃO APLICADA AQUI =====================
+        # 2. Normaliza os dados APENAS se não for um DataFrame
+        # Se já for um DataFrame (vindo de um arquivo), apenas o atribui à variável df.
+        if isinstance(raw_data, pd.DataFrame):
+            df = raw_data
+            self.log.info(f"[{job_name}] Dados já estão em formato de DataFrame. Normalização pulada.")
+        else:
+            self.log.info(f"[{job_name}] Normalizando dados brutos (provavelmente de API)...")
+            df = self._normalize_data(raw_data, mapping_spec, job_name)
+        
+        if df.empty:
+            self.log.warning(f"[{job_name}] DataFrame vazio após a etapa de normalização. Verifique a estrutura dos dados de origem.")
+            return pd.DataFrame()
+        self.log.info(f"[{job_name}] Após normalização: {len(df)} registros. Colunas: {df.columns.tolist()}")
+        # =================================================================
 
         # 3. Continua com o fluxo normal de mapeamento e validação
         df = self._prepare_and_map(df, job_config, mapping_spec, job_name)
+        if df.empty:
+            self.log.warning(f"[{job_name}] DataFrame vazio após mapeamento de colunas. Verifique o 'src_to_tgt' em mappings.py.")
+            return pd.DataFrame()
+        self.log.info(f"[{job_name}] Após mapeamento: {len(df)} registros. Colunas: {df.columns.tolist()}")
+
         eff_keys = self._get_effective_keys(job_config, mapping_spec)
         df = self._deduplicate(df, eff_keys, job_name)
+        self.log.info(f"[{job_name}] Após deduplicação: {len(df)} registros.")
+
         self._validate(df, eff_keys, mapping_spec, job_name)
+        self.log.info(f"[{job_name}] Validação concluída com sucesso.")
+
         df = self._transform(df, job_name)
+        self.log.info(f"[{job_name}] Transformações finais concluídas. DataFrame pronto para carga com {len(df)} registros.")
+        
         return df
 
     def _extract(self, adapter: Any, job_name: str) -> List[Dict]:
@@ -308,6 +339,23 @@ class DataMat:
     def _transform(self, df: pd.DataFrame, job_name: str) -> pd.DataFrame:
         # A lógica de transformação genérica permanece a mesma.
         return df
+    
+    def _get_temp_table_name(self, job_name: str) -> str:
+            """
+            Gera um nome de tabela temporária único e seguro para o banco de dados,
+            usando um hash para garantir que o nome seja sempre curto.
+            """
+            # Limpa o nome do job para criar uma base consistente para o hash
+            sane_job_name = re.sub(r'\W+', '_', job_name).lower()
+            
+            # Cria um hash SHA1 do nome e pega os primeiros 12 caracteres
+            job_hash = hashlib.sha1(sane_job_name.encode()).hexdigest()[:12]
+            
+            # Pega o timestamp atual para garantir unicidade entre execuções
+            timestamp = int(time.time())
+            
+            # Retorna um nome curto e garantido de ser único, ex: "temp_a1b2c3d4e5f6_1697302800"
+            return f"temp_{job_hash}_{timestamp}"
 
     def _load(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> Tuple[int, int]:
         if df.empty: 
@@ -327,15 +375,16 @@ class DataMat:
                 return self._append_to_db(df, table, schema)
             
             compare_cols = getattr(mapping_spec, "compare_cols", None)
-            
+            temp_table_name_base = self._get_temp_table_name(job_name)
             temp_table_prefix = "##" if self.dialect == 'mssql' else ""
-            temp_table_name = f"{temp_table_prefix}temp_{job_name.lower().replace(' ', '_')}_{int(time.time())}"
+            temp_table_name = f"{temp_table_prefix}{temp_table_name_base}"
             
             with self.engine.connect() as conn:
                 try:
                     with conn.begin() as transaction:
                         df_coerced = self._coerce_df_types_from_db_schema(df, table, schema, conn, job_name)
-                        df_coerced.to_sql(temp_table_name.replace("##", ""), conn, if_exists='replace', index=False, schema='tempdb' if self.dialect == 'mssql' else None)
+                        # Usa o nome base (sem prefixo) para o to_sql, pois o prefixo é específico do MSSQL
+                        df_coerced.to_sql(temp_table_name_base, conn, if_exists='replace', index=False, schema='tempdb' if self.dialect == 'mssql' else None)
                         
                         self.log.info(f"[{job_name}] Delegando operação de MERGE para a estratégia '{self.strategy.__class__.__name__}'.")
                         inserted, updated = self.strategy.execute_merge(conn, df_coerced, temp_table_name, table, keys, compare_cols, schema)

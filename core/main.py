@@ -102,11 +102,16 @@ def get_job_adapter(job_spec: Any, limit: int = 0) -> Any:
             delay_between_pages_ms=getattr(job_spec, 'delay_between_pages_ms', None),
             row_limit=limit if limit > 0 else getattr(job_spec, 'row_limit', None)
         )
-    elif job_spec.type == "file":
+    elif job_spec.type == 'file':
+        file_path = getattr(job_spec, 'file', None)
+        if not file_path:
+            raise ValueError(f"Job '{job_spec.name}' is of type 'file' but no 'file' path was specified.")
+
         return FileSourceAdapter(
-            file_path=getattr(job_spec, 'file', None),
-            sheet_name=getattr(job_spec, 'sheet', None),
-            header_row=getattr(job_spec, 'header', None)
+            path=file_path,
+            sheet=getattr(job_spec, 'sheet', None),
+            header=getattr(job_spec, 'header', 0),
+            delimiter=getattr(job_spec, 'delimiter', ';')
         )
     elif job_spec.type == "db":
         return DatabaseSourceAdapter(

@@ -3,5 +3,5 @@ import pandas as pd
 
 class SourceAdapter(ABC):
     @abstractmethod
-    def extract(self) -> pd.DataFrame:
+    def extract_raw(self) -> pd.DataFrame:
         ...
