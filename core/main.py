@@ -100,6 +100,7 @@ def get_job_adapter(job_spec: Any, limit: int = 0) -> Any:
             params=getattr(job_spec, 'params', None),
             param_matrix=getattr(job_spec, 'param_matrix', None),
             delay_between_pages_ms=getattr(job_spec, 'delay_between_pages_ms', None),
+            max_passes=getattr(job_spec, 'max_passes', 1),
             row_limit=limit if limit > 0 else getattr(job_spec, 'row_limit', None)
         )
     elif job_spec.type == 'file':
@@ -176,8 +177,18 @@ def run_tenant_pipeline(
             log.info("Iniciando execução dos jobs de STG...")
             for job_spec in jobs_to_run:
                 try:
+                    # --- AUTOMACAO DE FULL LOAD ---
+                    # Verifica se hoje é o dia programado para Carga Full (Truncate)
+                    # 0=Seg, 1=Ter, ..., 6=Dom
+                    if getattr(job_spec, 'full_load_weekday', None) is not None:
+                        today_wd = datetime.now().weekday()
+                        if today_wd == job_spec.full_load_weekday:
+                            log.info(f"📅 [{job_spec.name}] Hoje é dia de Carga Full Automática (Dia {today_wd}). Ativando Truncate.")
+                            job_spec.truncate = True
+
                     # Lógica incremental (permanece a mesma)
                     inc_config = getattr(job_spec, 'incremental_config', None)
+                    
                     if inc_config and inc_config.get("enabled", False):
                         days = inc_config.get("days_to_load", 30)
                         param_start = inc_config.get("date_param_start")
