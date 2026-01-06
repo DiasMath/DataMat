@@ -28,7 +28,8 @@ class _RateLimiter:
         self.last_request_time = 0.0
 
     def wait(self):
-        if self.period_seconds == 0.0: return
+        if self.period_seconds == 0.0: 
+            return
         with self.lock:
             wait_time = self.period_seconds - (time.monotonic() - self.last_request_time)
             if wait_time > 0:
@@ -57,7 +58,8 @@ class APISourceAdapter:
         detail_data_path: Optional[str] = None,
         requests_per_minute: Optional[int] = 60,
         enrichment_requests_per_minute: Optional[int] = None,
-        delay_between_pages_ms: Optional[int] = None
+        delay_between_pages_ms: Optional[int] = None,
+        max_passes: int = 1
     ):
         self.paging = paging or {}
         self.base_params = params or {}
@@ -68,6 +70,7 @@ class APISourceAdapter:
         self.detail_data_path = detail_data_path
         self.enrichment_strategy = enrichment_strategy
         self.delay_between_pages_ms = delay_between_pages_ms
+        self.max_passes = max_passes
 
         self._session = requests.Session()
         self._max_retries = int(os.getenv("API_MAX_RETRIES", "3"))
@@ -166,43 +169,57 @@ class APISourceAdapter:
 
     def extract_raw(self) -> List[Dict]:
         """
-        Método principal de extração. Combina a `param_matrix` com o laço de consolidação
-        e retorna uma lista de dicionários (JSONs brutos).
+        Método principal de extração. 
+        Se max_passes=1 (padrão), executa apenas uma extração linear.
+        Se max_passes>1, executa loops de consolidação para APIs instáveis.
         """
-        consolidated_data = {} # Usaremos um dict para consolidar: {id: record}
-        max_passes = 5
-
-        for i in range(1, max_passes + 1):
-            log.info(f"--- Iniciando Passagem de Extração Completa nº {i}/{max_passes} ---")
+        consolidated_data = {} 
+        
+        # Usa o parâmetro configurável
+        for i in range(1, self.max_passes + 1):
+            
+            # Só loga "Passagem X/Y" se realmente houver múltiplas passagens configuradas
+            if self.max_passes > 1:
+                log.info(f"--- Iniciando Passagem de Extração Completa nº {i}/{self.max_passes} ---")
             
             unique_records_before = len(consolidated_data)
 
             raw_rows_pass = self._execute_full_pass()
 
             if not raw_rows_pass:
-                log.warning(f"Passagem {i} não retornou nenhum dado novo.")
+                if self.max_passes > 1:
+                    log.warning(f"Passagem {i} não retornou nenhum dado novo.")
+                
                 if i > 1:
                     break
                 else:
+                    # Se falhou na primeira e única passagem, retorna vazio
                     return []
             
-            # Atualiza o dicionário de consolidação com os dados da passagem atual
+            # Consolidação
             for record in raw_rows_pass:
-                # O registro deve ser um dicionário e ter uma chave 'id'
                 if isinstance(record, dict) and 'id' in record:
                     consolidated_data[record['id']] = record
                 else:
-                    log.warning(f"Registro ignorado na consolidação por falta de 'id' ou formato inválido: {record}")
+                    # Se não tem ID, confia na lista bruta (para casos sem deduplicação por ID)
+                     if self.max_passes == 1:
+                        return raw_rows_pass
+
+            # Se for passagem única, retorna direto sem lógica de estabilização
+            if self.max_passes == 1:
+                final_list = list(consolidated_data.values())
+                if self.enrich_by_id:
+                    final_list = self._enrich_data_raw(final_list)
+                return final_list
 
             unique_records_after = len(consolidated_data)
-
-            log.info(f"--- Fim da passagem {i}: {unique_records_after} registros únicos consolidados. (+{unique_records_after - unique_records_before} novos) ---")
+            log.info(f"--- Fim da passagem {i}: {unique_records_after} registros consolidados. ---")
             
             if unique_records_after == unique_records_before and i > 1:
                 log.info("✅ Extração estabilizada. Finalizando consolidação.")
                 break
             
-            if i < max_passes and i > 1:
+            if i < self.max_passes and i >= 1:
                 log.info("Aguardando 5s antes da próxima passagem de consolidação...")
                 time.sleep(5)
         
@@ -305,7 +322,8 @@ class APISourceAdapter:
                 enriched_rows = [row for row in results if row is not None]
         else: # sequential
             for i, item_id in enumerate(ids_to_fetch):
-                if (i + 1) % 50 == 0: log.info(f"   ... {i+1}/{len(ids_to_fetch)} detalhes buscados")
+                if (i + 1) % 50 == 0: 
+                    log.info(f"   ... {i+1}/{len(ids_to_fetch)} detalhes buscados")
                 detail = self._enrich_one_detail(item_id)
                 if detail: enriched_rows.append(detail)
         
