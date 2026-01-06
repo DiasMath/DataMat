@@ -368,6 +368,18 @@ class DataMat:
             
         self.log.info(f"🚚 [{job_name}] Carregando {len(df)} linhas para '{schema}.{table}'...")
         
+        # --- MODO TRUNCATE (FULL LOAD) ---
+        # Se a flag truncate estiver ativa no Job, limpa a tabela antes de inserir.
+        if getattr(job_config, 'truncate', False):
+            self.log.info(f"   -> 🧨 Modo TRUNCATE ativado. Limpando tabela '{schema}.{table}' antes da carga...")
+            with self.engine.begin() as conn:
+                conn.execute(text(f"TRUNCATE TABLE `{schema}`.`{table}`"))
+            
+            # Após truncar, inserimos tudo via Append (mais rápido que Upsert)
+            rows_inserted, _ = self._append_to_db(df, table, schema)
+            return rows_inserted, 0
+        # --------------------------------------------------
+
         keys = self._get_effective_keys(job_config, mapping_spec)
         
         try:
@@ -383,7 +395,7 @@ class DataMat:
                 try:
                     with conn.begin() as transaction:
                         df_coerced = self._coerce_df_types_from_db_schema(df, table, schema, conn, job_name)
-                        # Usa o nome base (sem prefixo) para o to_sql, pois o prefixo é específico do MSSQL
+                        
                         df_coerced.to_sql(temp_table_name_base, conn, if_exists='replace', index=False, schema='tempdb' if self.dialect == 'mssql' else None)
                         
                         self.log.info(f"[{job_name}] Delegando operação de MERGE para a estratégia '{self.strategy.__class__.__name__}'.")
@@ -404,9 +416,61 @@ class DataMat:
         return len(df), 0
 
     def _coerce_df_types_from_db_schema(self, df: pd.DataFrame, table_name: str, schema: Optional[str], conn: Connection, job_name: str) -> pd.DataFrame:
-        # A lógica de coerção de tipos permanece a mesma.
-        return df
+        # """
+        # Lê os tipos de dados da tabela de destino no banco e força o DataFrame
+        # a seguir os mesmos tipos.
+        
+        # Especial para estratégia ELT: Se o banco for VARCHAR, converte tudo para String,
+        # mas garante que NaT (datas nulas) e NaN (números nulos) virem NULL (None).
+        # """
+        # self.log.info(f"   -> [{job_name}] Sincronizando tipos do DataFrame com a tabela '{table_name}'...")
+        
+        # try:
+        #     insp = inspect(conn)
+        #     # Recupera as colunas reais da tabela no banco
+        #     db_columns = insp.get_columns(table_name, schema=schema)
+        #     db_col_map = {c['name']: c['type'] for c in db_columns}
+            
+        #     for col in df.columns:
+        #         if col not in db_col_map:
+        #             continue 
+                
+        #         db_type = db_col_map[col]
+        #         db_type_str = str(db_type).upper()
 
+        #         try:
+        #             # 1. SE O BANCO PEDE TEXTO (VARCHAR, CHAR, TEXT)
+        #             if any(x in db_type_str for x in ['CHAR', 'TEXT', 'STRING']):
+        #                 # Converte para string, mas mapeia os "nulos do pandas" para None real
+        #                 # 'NaT' é o nulo de data, 'nan' é o nulo de float/object
+        #                 df[col] = df[col].astype(str).replace({
+        #                     'nan': None, 
+        #                     'None': None, 
+        #                     '<NA>': None, 
+        #                     'NaT': None 
+        #                 })
+
+        #             # 2. SE O BANCO PEDE INTEIRO
+        #             elif 'INT' in db_type_str:
+        #                 df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+
+        #             # 3. SE O BANCO PEDE DECIMAL/FLOAT
+        #             elif any(x in db_type_str for x in ['DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'REAL']):
+        #                 df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        #             # 4. SE O BANCO PEDE DATA
+        #             elif any(x in db_type_str for x in ['DATE', 'TIME']):
+        #                 df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        #         except Exception as e:
+        #             self.log.warning(f"   -> [{job_name}] Falha na coerção da coluna '{col}' ({db_type_str}): {e}")
+
+        #     return df
+            
+        # except Exception as e:
+        #     self.log.error(f"   -> [{job_name}] Erro crítico ao ler schema. Coerção pulada: {e}")
+            return df
+        
     def _get_effective_keys(self, job_config: Any, mapping_spec: Any) -> List[str]:
         keys = getattr(mapping_spec, "key_cols", [])
         return [keys] if isinstance(keys, str) else keys
