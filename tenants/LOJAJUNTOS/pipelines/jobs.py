@@ -34,6 +34,9 @@ class Job:
     requests_per_minute: Optional[int] = 60  # Limite de requisições para a extração principal
     enrichment_requests_per_minute: Optional[int] = None # Limite para o enriquecimento (se None, usa o principal)
     delay_between_pages_ms: Optional[int] = None
+    max_passes: int = 1
+    truncate: bool = False  # Flag manual caso você queira forçar na mão
+    full_load_weekday: Optional[int] = None # Agendamento Automático (0=Seg, 6=Dom). Ex: 6 para rodar Full todo domingo.
 
     # Arquivo (File)
     file: Optional[str] = None
@@ -92,11 +95,12 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        full_load_weekday=6,
     ),
 
     # ========= CONTAS ========= #
     Job(
-        name="Carga STG Bling Contas a Pagar",
+        name="Carga STG Bling Contas a Pagar", # depois tirar porque já está em 2026
         map_id="map_bling_contas_pagar",
         type="api",
         db_name="DB_STG_NAME",
@@ -111,16 +115,46 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        full_load_weekday=6,
         params={
-            # "dataEmissaoInicial": "2026-01-01",
-            # "dataEmissaoFinal": "2026-12-31",
+            "dataVencimentoInicial": "2025-01-01",
+            "dataVencimentoFinal": "2025-12-31",
         },
         param_matrix={ "situacao": [1, 2, 3, 4, 5] },
         incremental_config={
-            "enabled": True,
-            "date_param_start": "dataEmissaoInicial",
-            "date_param_end": "dataEmissaoFinal",
-            "days_to_load": 30
+            "enabled": False,
+            "date_param_start": "dataVencimentoInicial",
+            "date_param_end": "dataVencimentoFinal",
+            "days_to_load": 90
+        }
+    ),  
+
+    Job(
+        name="Carga STG Bling Contas a Pagar 2026+",
+        map_id="map_bling_contas_pagar",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_ContasPagar",
+        endpoint="contas/pagar",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path= "data",
+        delay_between_pages_ms=500, 
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
+        # full_load_weekday=6,
+        params={
+            "dataVencimentoInicial": "2026-01-01",  # Já pega tudo pra frente 
+        },
+        param_matrix={ "situacao": [1, 2, 3, 4, 5] },
+        incremental_config={
+            "enabled": False,
+            "date_param_start": "dataVencimentoInicial",
+            "date_param_end": "dataVencimentoFinal",
+            "days_to_load": 90
         }
     ),  
 
@@ -139,52 +173,67 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
-        # params={
-        #     "dataInicial": "2025-01-01",
-        #     "dataFinal": "2025-12-31",
-        #     # "criterio": 3
-        # },
+        full_load_weekday=6, 
+        max_passes=1,
+        params={
+            "tipoFiltroData": "V",
+            "dataInicial": "2025-01-01",
+            "dataFinal": "2025-12-31",
+        },
         param_matrix={
             "situacoes[]": [1, 2, 3, 4, 5],
         },
         incremental_config={
-            "enabled": True,
+            "enabled": False,
             "date_param_start": "dataInicial",
             "date_param_end": "dataFinal",
-            "days_to_load": 30
+            "days_to_load": 90
         }
     ),
 
-    # Job(
-    #     name="Carga STG Bling Contas a Receber Boleto",
-    #     map_id="map_bling_contas_receber_boleto",
-    #     type="api",
-    #     db_name="DB_STG_NAME",
-    #     table="tbSTG_BLING_ContasReceberBoleto",
-    #     endpoint="contas/receber/boletos",
-    #     auth=BLING_OAUTH_CONFIG,
-    #     paging=PAGING,
-    #     enrich_by_id=True,
-    #     enrichment_strategy='sequential',
-    #     data_path= "data",
-    #     detail_data_path="data",
-    #     requests_per_minute=180,
-    #     enrichment_requests_per_minute=150,
-    #     params={
-    #         "dataEmissaoInicial": "2021-01-01",
-    #         "dataEmissaoFinal": "2021-12-31",
-    #         # "criterio": 3
-    #     }
-    # ),
+    Job(
+        name="Carga STG Bling Contas a Receber 2026",
+        map_id="map_bling_contas_receber",
+        type="api",
+        db_name="DB_STG_NAME",
+        table="tbSTG_BLING_ContasReceber",
+        endpoint="contas/receber",
+        auth=BLING_OAUTH_CONFIG,
+        paging=PAGING,
+        enrich_by_id=True,
+        enrichment_strategy='sequential',
+        data_path= "data",
+        detail_data_path="data",
+        requests_per_minute=180,
+        enrichment_requests_per_minute=150,
+        full_load_weekday=6,
+        truncate=False,
+        max_passes=1,
+        params={
+            "tipoFiltroData": "V",
+            "dataInicial": "2026-01-01",
+            "dataFinal": "2026-12-31",
+        },
+        param_matrix={
+            "situacoes[]": [1, 2, 3, 4, 5],
+        },
+        incremental_config={
+            "enabled": False,
+            "date_param_start": "dataInicial",
+            "date_param_end": "dataFinal",
+            "days_to_load": 90
+        }
+    ),
 
     Job(
         name="Carga Temporaria STG Bling File Contas Pagar e Receber",
-        map_id="temp_map_bling_file_contas_pagar_e_receber",
+        map_id="temp_map_bling_drive_contas_pagar_e_receber",
         type="file",
         db_name="DB_STG_NAME",
-        table="tbSTG_BLING_FILE_MovimentacoesFinanceiras",
+        table="tbSTG_BLING_DRIVE_MovimentacoesFinanceiras",
         file="tenants/LOJAJUNTOS/data/movimentacoes_financeiras.csv",
-        delimiter=';'
+        delimiter=';',
+        truncate=True
     ),
 
     Job(
@@ -595,113 +644,113 @@ JOBS: List[Job] = [
     ),
 
    # ========= PEDIDOS ========= #
-    Job(
-        name="Carga STG Bling Pedido Compra",
-        map_id="map_bling_pedido_compra",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_PedidoCompra",
-        endpoint="pedidos/compras",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-        # params = {
-        #     "dataInicial" : "2025-01-01",
-        #     "dataFinal" : "2025-12-31"
-        # },
-        incremental_config={
-            "enabled": True,
-            "date_param_start": "dataInicial",
-            "date_param_end": "dataFinal",
-            "days_to_load": 30
-        }
-    ),
+    # Job(
+    #     name="Carga STG Bling Pedido Compra",
+    #     map_id="map_bling_pedido_compra",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_PedidoCompra",
+    #     endpoint="pedidos/compras",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     # params = {
+    #     #     "dataInicial" : "2025-01-01",
+    #     #     "dataFinal" : "2025-12-31"
+    #     # },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataInicial",
+    #         "date_param_end": "dataFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 
-    Job(
-        name="Carga STG Bling Pedido Compra Item",
-        map_id="map_bling_pedido_compra_item",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_PedidoCompraItem",
-        endpoint="pedidos/compras",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-        # params = {
-        # "dataInicial" : "2025-01-01",
-        # "dataFinal" : "2025-12-31"
-        # },
-        incremental_config={
-            "enabled": True,
-            "date_param_start": "dataInicial",
-            "date_param_end": "dataFinal",
-            "days_to_load": 30
-        }
-    ),
+    # Job(
+    #     name="Carga STG Bling Pedido Compra Item",
+    #     map_id="map_bling_pedido_compra_item",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_PedidoCompraItem",
+    #     endpoint="pedidos/compras",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     # params = {
+    #     # "dataInicial" : "2025-01-01",
+    #     # "dataFinal" : "2025-12-31"
+    #     # },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataInicial",
+    #         "date_param_end": "dataFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 
-    Job(
-        name="Carga STG Bling Pedido Venda",
-        map_id="map_bling_pedido_venda",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_PedidoVenda",
-        endpoint="pedidos/vendas",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-        # params = {
-        # "dataInicial" : "2025-01-01",
-        # "dataFinal" : "2025-12-31"
-        # },
-        incremental_config={
-            "enabled": True,
-            "date_param_start": "dataInicial",
-            "date_param_end": "dataFinal",
-            "days_to_load": 30
-        }
-    ),
+    # Job(
+    #     name="Carga STG Bling Pedido Venda",
+    #     map_id="map_bling_pedido_venda",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_PedidoVenda",
+    #     endpoint="pedidos/vendas",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     # params = {
+    #     # "dataInicial" : "2025-01-01",
+    #     # "dataFinal" : "2025-12-31"
+    #     # },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataInicial",
+    #         "date_param_end": "dataFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 
-    Job(
-        name="Carga STG Bling Pedido Venda Item",
-        map_id="map_bling_pedido_venda_item",
-        type="api",
-        db_name="DB_STG_NAME",
-        table="tbSTG_BLING_PedidoVendaItem",
-        endpoint="pedidos/vendas",
-        auth=BLING_OAUTH_CONFIG,
-        paging=PAGING,
-        enrich_by_id=True,
-        enrichment_strategy='sequential',
-        data_path= "data",
-        detail_data_path="data",
-        requests_per_minute=180,
-        enrichment_requests_per_minute=150,
-        # params={
-        #     "dataInicial": "2025-01-01",
-        #     "dataFinal": "2025-12-31",
-        # },
-        incremental_config={
-            "enabled": True,
-            "date_param_start": "dataInicial",
-            "date_param_end": "dataFinal",
-            "days_to_load": 30
-        }
-    ),
+    # Job(
+    #     name="Carga STG Bling Pedido Venda Item",
+    #     map_id="map_bling_pedido_venda_item",
+    #     type="api",
+    #     db_name="DB_STG_NAME",
+    #     table="tbSTG_BLING_PedidoVendaItem",
+    #     endpoint="pedidos/vendas",
+    #     auth=BLING_OAUTH_CONFIG,
+    #     paging=PAGING,
+    #     enrich_by_id=True,
+    #     enrichment_strategy='sequential',
+    #     data_path= "data",
+    #     detail_data_path="data",
+    #     requests_per_minute=180,
+    #     enrichment_requests_per_minute=150,
+    #     # params={
+    #     #     "dataInicial": "2025-01-01",
+    #     #     "dataFinal": "2025-12-31",
+    #     # },
+    #     incremental_config={
+    #         "enabled": True,
+    #         "date_param_start": "dataInicial",
+    #         "date_param_end": "dataFinal",
+    #         "days_to_load": 30
+    #     }
+    # ),
 
     # Job(
     #     name="Carga STG Bling Pedido Venda Parcela",

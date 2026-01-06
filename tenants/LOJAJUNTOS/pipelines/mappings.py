@@ -140,7 +140,7 @@ MAPPINGS = {
     ),
 
         # Temporário enquanto o Filipe não resolve a questão de baixar as contas R e P das contas a pagar e receber.
-        "temp_map_bling_file_contas_pagar_e_receber": MappingSpec(
+        "temp_map_bling_drive_contas_pagar_e_receber": MappingSpec(
         src_to_tgt={
             "Id"                    : "CodigoMovimentacaoFinanceiraOrigem",
             "Data"                  : "DataCompetencia",
