@@ -1,0 +1,181 @@
+# ================= Criar ambiente padrão Jupyter ================= #
+
+1- Célula de Configuração de Ambiente
+
+    # Célula 1: Configuração Final do Ambiente (Notebook-Only)
+    import pandas as pd
+    import os
+    import sys
+
+    # 1. Define o caminho para a pasta raiz do seu projeto.
+    project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))
+    print(f"Raiz do projeto identificada em: {project_root}")
+
+    # --- A SOLUÇÃO PRÁTICA ---
+    # 2. Muda o diretório de trabalho atual para a raiz do projeto.
+    #    A partir deste ponto, o notebook se comportará como se estivesse rodando da raiz.
+    os.chdir(project_root)
+    print(f"Diretório de trabalho alterado para: {os.getcwd()}")
+
+    # 3. Adiciona a raiz ao sys.path para que os imports funcionem.
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+
+    # 4. Agora, os imports e a lógica de busca de arquivos funcionarão como na produção.
+    from core.adapters.api_adapter import APISourceAdapter
+    from core.env import load_project_and_tenant_env
+
+    # 5. Carrega as variáveis de ambiente.
+    CLIENT_ID_PARA_ANALISE = "LOJAJUNTOS" # Ou outro tenant
+    load_project_and_tenant_env(CLIENT_ID_PARA_ANALISE)
+    print(f"\nVariáveis de ambiente para '{CLIENT_ID_PARA_ANALISE}' carregadas.")
+    print("Ambiente configurado. Pronto para extrair.")
+
+
+2 -  Célula 2: Extração dos Dados Brutos da API
+
+    import pandas as pd
+
+    print("Iniciando extração... Isso pode demorar, dependendo do volume de dados.")
+
+    # --- AÇÃO: Configure o seu adapter aqui ---
+    # Preencha com as informações específicas do endpoint que você quer analisar.
+    # Estas configurações são as mesmas que você usaria em um arquivo 'jobs.py'.
+    adapter_config = {
+        "endpoint": "contas-contabeis", # Ex: 'produtos', 'vendas'
+        "paging": {
+            "mode": "page",
+            "page_param": "pagina", # Nome do parâmetro de página da sua API
+            "size_param": "limite", # Nome do parâmetro de tamanho da página
+            "size": 100             # Quantos registros por página
+        },
+        "auth": {
+            "kind": "oauth2_generic"  # Ou o tipo de autenticação que sua API usa
+        }
+        # Adicione 'param_matrix' ou 'params' se precisar de filtros iniciais
+    }
+
+    try:
+        # Instancia o adapter com a configuração definida
+        adapter = APISourceAdapter(**adapter_config)
+
+        # Chama o método que faz todo o trabalho de extração
+        dados_brutos = adapter.extract_raw()
+
+        # Carrega os dados brutos em um DataFrame do Pandas
+        df = pd.DataFrame(dados_brutos)
+
+        print("\n--- SUCESSO! ---")
+        print(f"Extração concluída.")
+        print(f"{len(df)} registros foram carregados no DataFrame 'df'.")
+        print("Agora você pode analisar os dados nas próximas células.")
+
+    except Exception as e:
+        print(f"\n--- ERRO DURANTE A EXTRAÇÃO ---")
+        print(f"Ocorreu um erro: {e}")
+        print("Verifique as configurações do adapter, as variáveis de ambiente e se o token OAuth2 está válido.")
+
+3 - Célula 3: O Laboratório de Análise de Dados (Passo Rápido e Interativo)
+
+# display() é uma função do Jupyter que formata DataFrames de forma mais elegante que print().
+# --- 1. INSPEÇÃO INICIAL: ENTENDENDO SEUS DADOS ---
+print("--- 1. Inspeção Inicial ---")
+print("a) Informações Gerais (colunas, tipos, valores não-nulos):")
+df.info()
+
+print("\n\nb) Descrição Estatística das Colunas Numéricas:")
+# 'display()' é melhor que 'print()' para mostrar DataFrames no notebook
+display(df.describe())
+
+print("\n\nc) Contagem de Valores Nulos por Coluna:")
+display(df.isnull().sum())
+
+
+# --- 2. LIMPEZA E TRATAMENTO: ARRUMANDO A CASA ---
+# É uma boa prática trabalhar em uma cópia para preservar o DataFrame original.
+df_limpo = df.copy()
+
+# a) Corrigindo Tipos de Dados (EXEMPLOS - ADAPTE PARA SUAS COLUNAS)
+#    Use 'errors="coerce"' para transformar valores que não podem ser convertidos em Nulos (NaN).
+# df_limpo['sua_coluna_de_data'] = pd.to_datetime(df_limpo['sua_coluna_de_data'], errors='coerce')
+# df_limpo['sua_coluna_numerica'] = pd.to_numeric(df_limpo['sua_coluna_numerica'], errors='coerce')
+
+# b) Tratando Valores Nulos (EXEMPLOS)
+#    Para colunas numéricas, preencher com 0 é uma opção comum.
+# df_limpo['sua_coluna_numerica'].fillna(0, inplace=True)
+#    Para colunas de texto (categoria), pode-se preencher com um valor padrão.
+# df_limpo['sua_coluna_de_categoria'].fillna('N/A', inplace=True)
+
+
+# --- 3. SELEÇÃO E FILTRAGEM: FAZENDO SUAS "QUERIES" ---
+print("\n\n--- 3. Seleção e Filtragem ---")
+
+# a) Selecionando Colunas Específicas
+colunas_de_interesse = ['id', 'nome', 'valor'] # <-- ADAPTE para nomes de colunas que existem no seu df
+# display(df_limpo[colunas_de_interesse].head())
+
+# b) Filtragem Simples (usando a sintaxe de query, similar a SQL)
+#    Exemplo: pegar itens com valor maior que 100
+# display(df_limpo.query("valor > 100").head())
+
+# c) Filtragem com Múltiplas Condições
+#    Exemplo: itens com valor > 100 E da categoria 'Eletrônicos'
+# display(df_limpo.query("valor > 100 and categoria == 'Eletrônicos'").head())
+
+
+# --- 4. AGREGAÇÃO E AGRUPAMENTO: RESUMINDO OS DADOS ---
+print("\n\n--- 4. Agregação e Agrupamento ---")
+
+# a) Agrupando por uma Categoria e Somando uma Coluna Numérica
+#    Exemplo: Qual o valor total de produtos por categoria?
+# if 'categoria' in df_limpo.columns and 'valor' in df_limpo.columns:
+#     valor_por_categoria = df_limpo.groupby('categoria')['valor'].sum().sort_values(ascending=False)
+#     display(valor_por_categoria)
+
+# b) Agrupando com Múltiplas Agregações
+#    Exemplo: Por categoria, qual a SOMA de valor, a MÉDIA de preço e a CONTAGEM de produtos?
+# if 'categoria' in df_limpo.columns and 'valor' in df_limpo.columns:
+#     resumo_por_categoria = df_limpo.groupby('categoria').agg(
+#         valor_total=('valor', 'sum'),
+#         preco_medio=('valor', 'mean'),
+#         quantidade_produtos=('id', 'count')
+#     ).sort_values(by='valor_total', ascending=False)
+#     display(resumo_por_categoria)
+
+
+# --- 5. CRIAÇÃO DE NOVAS COLUNAS: ENRIQUECENDO OS DADOS ---
+print("\n\n--- 5. Criação de Novas Colunas ---")
+# Exemplo: Criar uma coluna 'imposto' que é 10% do valor
+# if 'valor' in df_limpo.columns:
+#     df_limpo['imposto'] = df_limpo['valor'] * 0.10
+#     display(df_limpo[['id', 'valor', 'imposto']].head())
+
+
+# --- 6. VISUALIZAÇÃO SIMPLES: UMA IMAGEM VALE MAIS ---
+#    (Requer a biblioteca 'matplotlib'. Se não tiver, rode: pip install matplotlib)
+print("\n\n--- 6. Visualização Simples ---")
+# Exemplo: Gráfico de barras com o top 10 categorias por valor total
+# if 'valor_por_categoria' in locals(): # Verifica se a variável do passo 4 foi criada
+#     valor_por_categoria.head(10).plot(kind='barh', title='Top 10 Categorias por Valor Total')
+
+
+# --- 7. EXPORTAÇÃO: SALVANDO SEU TRABALHO ---
+print("\n\n--- 7. Exportação ---")
+# Após toda a limpeza e análise, você pode querer salvar o resultado.
+# Descomente a linha abaixo para salvar o DataFrame limpo em um arquivo CSV.
+# nome_arquivo_saida = 'dados_limpos_e_analisados.csv'
+# df_limpo.to_csv(nome_arquivo_saida, index=False, sep=';', decimal=',')
+# print(f"Arquivo '{nome_arquivo_saida}' salvo com sucesso no diretório do projeto.")
+
+
+
+
+
+
+
+
+
+
+
+
+
