@@ -3,6 +3,7 @@ import logging
 import time
 import os
 import json
+import hashlib
 from typing import Any, Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore, Lock
@@ -59,7 +60,8 @@ class APISourceAdapter:
         requests_per_minute: Optional[int] = 60,
         enrichment_requests_per_minute: Optional[int] = None,
         delay_between_pages_ms: Optional[int] = None,
-        max_passes: int = 1
+        max_passes: int = 1,
+        id_key: str = "id" 
     ):
         self.paging = paging or {}
         self.base_params = params or {}
@@ -71,6 +73,7 @@ class APISourceAdapter:
         self.enrichment_strategy = enrichment_strategy
         self.delay_between_pages_ms = delay_between_pages_ms
         self.max_passes = max_passes
+        self.id_key = id_key
 
         self._session = requests.Session()
         self._max_retries = int(os.getenv("API_MAX_RETRIES", "3"))
@@ -196,14 +199,23 @@ class APISourceAdapter:
                     # Se falhou na primeira e única passagem, retorna vazio
                     return []
             
-            # Consolidação
+            # Consolidação Robusta: Usa id_key ou hash
             for record in raw_rows_pass:
-                if isinstance(record, dict) and 'id' in record:
-                    consolidated_data[record['id']] = record
+                if isinstance(record, dict):
+                    # Tenta pegar o ID usando a chave configurada
+                    record_id = record.get(self.id_key)
+                    
+                    if record_id is not None:
+                        # Chave existe: Upsert no dicionário (elimina duplicatas da API)
+                        consolidated_data[record_id] = record
+                    else:
+                        # Fallback seguro: Hash do registro inteiro para não perder dados sem ID
+                        # Isso previne que dados sem 'id' sejam ignorados silenciosamente
+                        rec_hash = hashlib.md5(json.dumps(record, sort_keys=True).encode()).hexdigest()
+                        consolidated_data[f"__no_id_{rec_hash}"] = record
                 else:
-                    # Se não tem ID, confia na lista bruta (para casos sem deduplicação por ID)
-                     if self.max_passes == 1:
-                        return raw_rows_pass
+                    log.warning(f"Registro ignorado pois não é um dicionário: {record}")
+            # -------------------------
 
             # Se for passagem única, retorna direto sem lógica de estabilização
             if self.max_passes == 1:
@@ -261,7 +273,6 @@ class APISourceAdapter:
             page_data = self._get_data_from_payload(payload, self.data_path)
             
             if not isinstance(page_data, list):
-                # O _get_data_from_payload agora garante uma lista, mas mantemos por segurança.
                 log.error(f"⛔ Formato de dados inesperado (não é uma lista). Encerrando. Payload: {payload}")
                 break
 
@@ -305,10 +316,13 @@ class APISourceAdapter:
 
     def _enrich_data_raw(self, raw_data: List[Dict]) -> List[Dict]:
         """Versão do enriquecimento que opera sobre a lista de dicionários brutos."""
-        if not raw_data or 'id' not in raw_data[0]:
-            raise DataExtractionError("Dados brutos inválidos ou sem 'id' para enriquecimento.")
+        if not raw_data or self.id_key not in raw_data[0]:
+            # Se a chave configurada não existe nos dados, não podemos enriquecer por ID
+            if raw_data and isinstance(raw_data[0], dict):
+                log.warning(f"Chave '{self.id_key}' não encontrada nos dados para enriquecimento. Pulando.")
+            return raw_data
         
-        ids_to_fetch = list(set(item['id'] for item in raw_data if 'id' in item))
+        ids_to_fetch = list(set(item[self.id_key] for item in raw_data if self.id_key in item))
 
         if not ids_to_fetch:
             log.warning("Nenhum ID único encontrado para enriquecer.")
@@ -351,18 +365,19 @@ class APISourceAdapter:
     def _get_data_from_payload(self, payload: Any, path: Optional[str]) -> Any:
         """
         Extrai os dados do payload de forma robusta. 
-        Se o resultado final for um único dicionário, ele é encapsulado em uma 
-        lista para manter a consistência do fluxo de dados.
         """
         data = payload
         
         if path:
             try:
                 for key in path.split('.'):
-                    if isinstance(data, list): data = data[0] if data else {}
+                    # Se encontrarmos uma lista no meio do caminho, paramos.
+                    if isinstance(data, list):
+                        log.warning(f"Tentativa de acessar chave '{key}' dentro de uma Lista no path '{path}'. Retornando vazio.")
+                        return []
                     data = data[key]
             except (KeyError, TypeError, IndexError):
-                log.warning(f"Caminho de dados '{path}' não encontrado no payload: {payload}")
+                log.warning(f"Caminho de dados '{path}' não encontrado no payload.")
                 return []
         
         if isinstance(data, dict):

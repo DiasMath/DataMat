@@ -101,7 +101,8 @@ def get_job_adapter(job_spec: Any, limit: int = 0) -> Any:
             param_matrix=getattr(job_spec, 'param_matrix', None),
             delay_between_pages_ms=getattr(job_spec, 'delay_between_pages_ms', None),
             max_passes=getattr(job_spec, 'max_passes', 1),
-            row_limit=limit if limit > 0 else getattr(job_spec, 'row_limit', None)
+            row_limit=limit if limit > 0 else getattr(job_spec, 'row_limit', None),
+            id_key=getattr(job_spec, 'id_key', 'id')
         )
     elif job_spec.type == 'file':
         file_path = getattr(job_spec, 'file', None)
