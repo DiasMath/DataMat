@@ -1,275 +1,189 @@
-# Orquestrador da madrugada com alertas via E-mail e Telegram
-from __future__ import annotations
-
-# ===== UTF-8 stdio (mantém emojis no Windows/Scheduler) =====
+#!/usr/bin/env python3
+"""
+Master Nightly - Orquestrador de Cargas Noturnas (Modo Detalhado)
+Gera um relatório extenso com contagem de linhas por tabela.
+"""
 import sys
+import time
+import logging
 import os
-import traceback
-from typing import List, Tuple, Dict, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from dotenv import load_dotenv
 
-from dotenv import load_dotenv, dotenv_values
+# --- SETUP DE CAMINHOS ---
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
 
+# --- IMPORTS ---
 from core.main import run_tenant_pipeline
-from core.alerts.email import send_email
-from core.alerts.telegram import send_telegram_text
+# Usamos send_telegram_text para enviar a mensagem formatada manualmente
+from core.alerts import send_telegram_text, observer
+from core.env import load_global_env
 
+# --- CONFIGURAÇÃO DE LOG ---
+log_dir = ROOT_DIR / "Nightly Logs"
+log_dir.mkdir(exist_ok=True)
 
-def _force_utf8_stdio():
-    try:
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        if hasattr(sys.stderr, "reconfigure"):
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-_force_utf8_stdio()
+root_logger = logging.getLogger()
+# Limpa handlers anteriores para evitar duplicidade em re-execuções manuais
+if root_logger.handlers:
+    for handler in root_logger.handlers:
+        root_logger.removeHandler(handler)
 
-# ========= Util: resolução de caminhos e carga de .env =========
-def _root_dir() -> Path:
-    # este arquivo está em core/, então a raiz é um nível acima
-    return Path(__file__).resolve().parents[1]
+nightly_log_file = log_dir / f"nightly_{datetime.now().strftime('%Y%m%d')}.log"
+file_handler = logging.FileHandler(nightly_log_file, encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
+# Adiciona console handler também para ver rodando
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter('%(message)s'))
 
-def _existing_files(files: Iterable[Path]) -> List[Path]:
-    return [p for p in files if p.is_file()]
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
 
+log = logging.getLogger("MasterNightly")
 
-def _tenant_env_candidates(root: Path, cid: str) -> List[Path]:
-    """
-    Retorna os possíveis caminhos de .env para o tenant (na ordem de prioridade).
-    Carregaremos todos os que existirem, na ordem, com override=True.
-    """
-    base = root / "tenants" / cid
-    return [
-        base / ".env",
-        base / "config" / ".env",
-        base / ".env.local",
-    ]
-
-
-def _load_root_env(root: Path) -> None:
-    """
-    Carrega o .env da raiz explicitamente (sem depender do cwd).
-    Não faz override do que já estiver no ambiente (override=False),
-    permitindo que o Scheduler/OS injete variáveis se necessário.
-    """
-    load_dotenv(dotenv_path=root / ".env", override=False, encoding="utf-8")
-
-
-def _push_env_from_files(files: List[Path]) -> Dict[str, str | None]:
-    """
-    Carrega variáveis a partir de múltiplos .env (na ordem),
-    aplicando override=True. Retorna um dicionário com os valores
-    anteriores (para restauração), contendo chaves modificadas/adicionadas.
-    """
-    changed: Dict[str, str | None] = {}
-
-    for env_file in files:
-        kvs = dotenv_values(env_file, encoding="utf-8")
-        for k, _ in kvs.items():
-            if k is None:
-                continue
-            if k not in changed:
-                changed[k] = os.environ.get(k)
-        load_dotenv(dotenv_path=env_file, override=True, encoding="utf-8")
-
-    return changed
-
-
-def _pop_env(previous: Dict[str, str | None]) -> None:
-    """
-    Restaura o ambiente removendo/voltando chaves que foram alteradas.
-    """
-    for k, old_val in previous.items():
-        if old_val is None:
-            os.environ.pop(k, None)
-        else:
-            os.environ[k] = old_val
-
-
-# ========= Leitura de parâmetros =========
-def load_clients_from_env() -> List[str]:
-    raw = os.getenv("NIGHTLY_CLIENTS", "").strip()
-    if not raw:
-        raise SystemExit("Defina NIGHTLY_CLIENTS no .env, ex: NIGHTLY_CLIENTS=HASHTAG,OUTROCLIENTE")
-    # aceita vírgula ou ponto-e-vírgula
-    if ";" in raw and "," not in raw:
-        parts = raw.split(";")
+def get_target_tenants() -> list:
+    load_global_env()
+    nightly_var = os.getenv("NIGHTLY_CLIENTS", "").strip()
+    valid_tenants = []
+    
+    if nightly_var:
+        log.info(f"📋 Modo Manual (NIGHTLY_CLIENTS): {nightly_var}")
+        requested_tenants = [t.strip() for t in nightly_var.split(',') if t.strip()]
+        for t in requested_tenants:
+            tenant_path = ROOT_DIR / "tenants" / t
+            if tenant_path.exists() and (tenant_path / "config" / ".env").exists():
+                valid_tenants.append(t)
+            else:
+                log.warning(f"⚠️  Tenant '{t}' ignorado (pasta ou .env ausente).")
     else:
-        parts = raw.split(",")
-    return [c.strip() for c in parts if c.strip()]
+        log.info("🔍 NIGHTLY_CLIENTS vazio. Escaneando tenants...")
+        tenants_dir = ROOT_DIR / "tenants"
+        if tenants_dir.exists():
+            for item in tenants_dir.iterdir():
+                if item.is_dir() and not item.name.startswith("_"):
+                    if (item / "config" / ".env").exists():
+                        valid_tenants.append(item.name)
+    return sorted(valid_tenants)
 
+def format_duration(seconds):
+    return str(timedelta(seconds=int(seconds)))
 
-def workers_per_client() -> int:
-    try:
-        return int(os.getenv("WORKERS_PER_CLIENT", "2"))
-    except Exception:
-        return 2
+def run_nightly_batch():
+    start_time = time.time()
+    batch_date = datetime.now().strftime("%d/%m/%Y")
+    
+    log.info(f"🚀 INICIANDO BATERIA NOTURNA DETALHADA - {batch_date}")
+    
+    tenants = get_target_tenants()
+    if not tenants:
+        log.warning("⛔ Nenhum tenant para rodar.")
+        return
 
+    # Estrutura para guardar os relatórios individuais
+    report_blocks = []
+    
+    global_stats = {
+        "success": 0,
+        "failure": 0,
+        "total_rows": 0
+    }
 
-# ========= Notificações =========
-def _notify_failure(cid: str, e: Exception, tb: str) -> None:
-    # Telegram (detalhado só em falha)
-    tmsg = (
-        f"🚨 *Falha na carga*\n"
-        f"*Cliente:* `{cid}`\n"
-        f"*Quando:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"*Erro:* `{e.__class__.__name__}`\n"
-        f"```\n{str(e)}\n```\n"
-        f"Traceback (resumo):\n"
-        f"```\n{tb}\n```"
-    )
-    try:
-        send_telegram_text(tmsg, parse_mode="Markdown")
-    except Exception:
-        pass
-
-    # E-mail (apenas falha)
-    subj = f"[ETL Nightly][{cid}] Falha na carga"
-    body_txt = (
-        f"Falha na carga do cliente {cid}\n\n"
-        f"Quando: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"Erro: {e.__class__.__name__}\n"
-        f"Mensagem: {str(e)}\n\n"
-        f"Traceback:\n{tb}\n"
-    )
-    body_html = f"""
-    <h3>Falha na carga</h3>
-    <p><b>Cliente:</b> {cid}<br>
-       <b>Quando:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
-       <b>Erro:</b> {e.__class__.__name__}</p>
-    <pre style="white-space:pre-wrap">{str(e)}</pre>
-    <h4>Traceback (resumo)</h4>
-    <pre style="white-space:pre-wrap">{tb}</pre>
-    """
-    try:
-        send_email(subj, body_txt, body_html)
-    except Exception:
-        pass
-
-
-def _notify_client_result(cid: str, total: int, dur_s: float) -> None:
-    """
-    Notificação curta por cliente (para não 'spammar').
-    Telegram apenas; e-mail fica para falhas e resumo final.
-    """
-    if total >= 0:
-        msg = f"✅ *{cid}* — {total} linhas em {dur_s:.1f}s"
-    else:
-        msg = f"❌ *{cid}* — Falha (veja log)"
-    try:
-        send_telegram_text(msg, parse_mode="Markdown")
-    except Exception:
-        pass
-
-
-def _notify_summary(resumo: List[Tuple[str, int]], dur_s: float) -> None:
-    ok = sum(1 for _, t in resumo if t >= 0)
-    falhas = sum(1 for _, t in resumo if t < 0)
-    linhas = []
-    for cid, tot in resumo:
-        if tot >= 0:
-            linhas.append(f"✅ {cid}: {tot} linhas")
-        else:
-            linhas.append(f"❌ {cid}: FALHA")
-
-    # Telegram (resumo final)
-    tmsg = (
-        f"🌙 *Resumo carga madrugada*\n"
-        f"*Quando:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"*Duração:* {dur_s:.1f}s\n"
-        f"*Clientes OK:* {ok} | *Falhas:* {falhas}\n\n" +
-        "\n".join(linhas)
-    )
-    try:
-        send_telegram_text(tmsg, parse_mode="Markdown")
-    except Exception:
-        pass
-
-    # E-mail (resumo final)
-    subj = "[ETL Nightly] Resumo das cargas"
-    body_txt = (
-        f"Resumo da madrugada\n\n"
-        f"Quando: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"Duração: {dur_s:.1f}s\n"
-        f"Clientes OK: {ok} | Falhas: {falhas}\n\n" +
-        "\n".join(linhas) + "\n"
-    )
-    body_html = f"""
-    <h3>Resumo carga madrugada</h3>
-    <p><b>Quando:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
-       <b>Duração:</b> {dur_s:.1f}s<br>
-       <b>Clientes OK:</b> {ok} | <b>Falhas:</b> {falhas}</p>
-    <ul>
-      {''.join(f'<li>{ln}</li>' for ln in linhas)}
-    </ul>
-    """
-    try:
-        send_email(subj, body_txt, body_html)
-    except Exception:
-        pass
-
-
-# ========= Execução principal =========
-def run_all_clients() -> Tuple[List[Tuple[str, int]], float]:
-    inicio = datetime.now()
-    resumo: List[Tuple[str, int]] = []
-
-    root = _root_dir()
-    _load_root_env(root)  # garante .env da raiz
-
-    CLIENTES = load_clients_from_env()
-    W = workers_per_client()
-
-    # Snapshot do ambiente base (após carregar raiz)
-    base_snapshot = dict(os.environ)
-
-    for cid in CLIENTES:
-        print(f"\n=== Iniciando cliente: {cid} ===")
-
-        # Carregar .env(s) do tenant com override, mantendo lista p/ restauração
-        tenant_envs = _existing_files(_tenant_env_candidates(root, cid))
-        if tenant_envs:
-            print("🧩 [ENV] Carregando .env do tenant:", ", ".join(str(p) for p in tenant_envs))
-            prev = _push_env_from_files(tenant_envs)
-        else:
-            print("ℹ️ [ENV] Nenhum .env específico encontrado para o tenant.")
-
-        # --- execução por cliente (não interrompe os demais) ---
-        cli_inicio = datetime.now()
+    for tenant_id in tenants:
+        log.info(f"▶️  Processando: {tenant_id}")
+        tenant_start = time.time()
+        
         try:
-            total, _detalhes = run_tenant_pipeline(cid, workers_per_client=W)
-            resumo.append((cid, total))
+            # rows = total de linhas (int)
+            # details = lista de tuplas [(job_name, inserted, updated), ...]
+            rows, details = run_tenant_pipeline(tenant_id)
+            duration = format_duration(time.time() - tenant_start)
+            
+            if rows == -1:
+                # --- CASO DE ERRO ---
+                global_stats["failure"] += 1
+                error_msg = details.get("error", "Erro desconhecido")
+                log.error(f"❌ Falha em {tenant_id}: {error_msg}")
+                
+                block = (
+                    f"❌ *{tenant_id}* (Falha)\n"
+                    f"⏱️ `{duration}`\n"
+                    f"💀 _Erro: {error_msg}_"
+                )
+                report_blocks.append(block)
+
+            else:
+                # --- CASO DE SUCESSO ---
+                global_stats["success"] += 1
+                global_stats["total_rows"] += rows
+                log.info(f"✅ Sucesso em {tenant_id}: {rows} linhas")
+                
+                # Calcula totais do cliente
+                total_ins = 0
+                total_upd = 0
+                jobs_str = ""
+
+                # details é uma lista de tuplas: (job_name, inserted, updated)
+                # Vamos ordenar por volume (quem teve mais movimento aparece primeiro)
+                sorted_jobs = sorted(details, key=lambda x: x[1] + x[2], reverse=True)
+
+                for job_name, ins, upd in sorted_jobs:
+                    total_ins += ins
+                    total_upd += upd
+                    # Só mostra o job se teve alguma movimentação para economizar espaço
+                    if ins > 0 or upd > 0:
+                        jobs_str += f"   ├─ `{job_name}`: 🟢+{ins} | 🔵~{upd}\n"
+                
+                # Se nenhum job teve dados, mostra msg padrão
+                if not jobs_str:
+                    jobs_str = "   (Sem novos dados)\n"
+
+                block = (
+                    f"✅ *{tenant_id}*\n"
+                    f"⏱️ Duração: `{duration}`\n"
+                    f"{jobs_str}"
+                    f"   ━━━━━━━━━━━━━━━━\n"
+                    f"   ∑ *Total*: 🟢+{total_ins} | 🔵~{total_upd}"
+                )
+                report_blocks.append(block)
+
         except Exception as e:
-            tb = traceback.format_exc(limit=12)
-            resumo.append((cid, -1))
-            _notify_failure(cid, e, tb)
-        finally:
-            cli_dur = (datetime.now() - cli_inicio).total_seconds()
-            # notificação curta por cliente (sempre)
-            last_total = resumo[-1][1]
-            _notify_client_result(cid, last_total, cli_dur)
+            global_stats["failure"] += 1
+            log.critical(f"💥 Crash em {tenant_id}: {e}")
+            block = f"💥 *{tenant_id}* (CRASH)\n⚠️ _{str(e)}_"
+            report_blocks.append(block)
 
-            # Restaurar ambiente ao estado base para o próximo cliente
-            if tenant_envs:
-                _pop_env(prev)
-            os.environ.clear()
-            os.environ.update(base_snapshot)
+    # --- MONTAGEM DA MENSAGEM FINAL ---
+    total_duration = format_duration(time.time() - start_time)
+    header_icon = "⚠️" if global_stats["failure"] > 0 else "📊"
+    
+    # Cabeçalho
+    final_msg = (
+        f"{header_icon} *RELATÓRIO DE CARGA: {batch_date}*\n"
+        f"⏱️ Tempo Total: {total_duration}\n"
+        f"🏁 Sucessos: {global_stats['success']} | ❌ Falhas: {global_stats['failure']}\n"
+        f"📉 Linhas Totais: {global_stats['total_rows']}\n\n"
+        f"━━━━━━━━━━━━━━━━\n"
+    )
 
-    dur = (datetime.now() - inicio).total_seconds()
+    # Corpo (Junta todos os blocos dos clientes)
+    final_msg += "\n\n".join(report_blocks)
 
-    # resumo final
-    _notify_summary(resumo, dur)
-
-    print("\n===== RESUMO MADRUGADA =====")
-    for cid, tot in resumo:
-        print("-", f"{cid}: {'FALHA' if tot < 0 else f'{tot} linhas'}")
-    print(f"Duração total: {dur:.1f}s")
-
-    return resumo, dur
-
+    log.info("Enviando relatório detalhado para o Telegram...")
+    
+    # Envia (com parse_mode Markdown para ficar bonito)
+    # Se a mensagem for muito grande (>4096 chars), o Telegram corta.
+    # Por segurança, imprimimos no log também.
+    log.info(final_msg) 
+    
+    send_telegram_text(final_msg, parse_mode="Markdown")
+    
+    log.info("💤 Bateria Noturna Finalizada.")
 
 if __name__ == "__main__":
-    run_all_clients()
+    run_nightly_batch()

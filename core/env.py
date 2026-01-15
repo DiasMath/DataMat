@@ -1,30 +1,50 @@
-# core/env.py
-from __future__ import annotations
+import logging
 from pathlib import Path
-import os
+from dotenv import load_dotenv
 
-def _load_dotenv_file(path: Path) -> None:
-    if not path.exists():
-        return
-    try:
-        from dotenv import load_dotenv  # type: ignore
-        load_dotenv(path, override=True)
-    except Exception:
-        # fallback bem simples
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            s = raw.strip()
-            if not s or s.startswith("#") or "=" not in s:
-                continue
-            k, v = s.split("=", 1)
-            os.environ[k.strip()] = v.strip().strip('"').strip("'")
+# --- CONFIGURAÇÃO DE LOG ---
+log = logging.getLogger("core.env")
 
-def load_project_and_tenant_env(client_id: str | None) -> None:
+# --- DEFINIÇÃO DA RAIZ ---
+# Assume que este arquivo está em: /core/env.py
+# .parent = /core
+# .parent.parent = / (Raiz do Projeto)
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+def load_global_env():
     """
-    1) Carrega ./.env (global do projeto)
-    2) Se client_id for informado: tenants/<client_id>/config/.env (sobrescreve o global)
+    Carrega apenas as variáveis globais (da raiz).
+    Útil para scripts que não são de um cliente específico (ex: master_nightly).
     """
-    root = Path(__file__).resolve().parents[1]  # raiz do repo
-    _load_dotenv_file(root / ".env")
+    global_path = ROOT_DIR / ".env"
+    
+    if global_path.exists():
+        # Carrega sem sobrescrever o que já existe no sistema (prioridade para variáveis de sistema)
+        load_dotenv(dotenv_path=global_path)
+    else:
+        log.warning(f"⚠️  Arquivo .env global não encontrado em: {global_path}")
 
-    if client_id:
-        _load_dotenv_file(root / "tenants" / client_id / "config" / ".env")
+def load_tenant_env(tenant_id: str) -> bool:
+    """
+    Carrega o ambiente completo para um cliente:
+    1. Carrega o .env Global (Base)
+    2. Carrega o .env do Tenant (Sobrescreve/Específico)
+    
+    Retorna True se o arquivo do cliente foi encontrado e carregado.
+    """
+    # 1. Garante que as globais (ex: Telegram Token) estejam carregadas
+    load_global_env()
+
+    # 2. Busca o arquivo específico do cliente
+    tenant_env_path = ROOT_DIR / "tenants" / tenant_id / "config" / ".env"
+    
+    if not tenant_env_path.exists():
+        log.error(f"❌ Configuração (.env) não encontrada para: {tenant_id}")
+        return False
+
+    # 3. Carrega o Tenant com override=True
+    # Isso garante que se o cliente tiver uma DB_URL ou TELEGRAM_CHAT_ID próprios,
+    # eles ganhem prioridade sobre o global.
+    load_dotenv(dotenv_path=tenant_env_path, override=True)
+    
+    return True
