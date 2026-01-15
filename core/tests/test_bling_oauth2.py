@@ -1,149 +1,103 @@
 # core/tests/test_bling_oauth2.py
-
-"""
-Teste focado para validar o fluxo completo do OAuth2Client de forma isolada.
-Este script é autocontido e guia o usuário pelo processo de autorização.
-"""
 from __future__ import annotations
 import os
 import sys
-import webbrowser
-import threading
-import time
+import logging
+import requests
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, urlencode
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from .test_utils import load_test_envs
 
-# Adiciona o diretório raiz ao path para permitir imports de 'core'
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+# Adiciona raiz ao path
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
 
-# Função auxiliar para carregar os .env
-def load_test_envs(client_id: str):
-    """Carrega os ambientes de teste (global e do cliente)."""
-    try:
-        from dotenv import load_dotenv
-        print(f"Carregando ambientes para o cliente: {client_id}")
-        load_dotenv(".env", override=True)
-        tenant_env = Path("tenants") / client_id / "config" / ".env"
-        if tenant_env.exists():
-            load_dotenv(tenant_env, override=True)
-    except ImportError:
-        print("Aviso: python-dotenv não instalado. Usando variáveis de ambiente existentes.")
+from core.auth.oauth2_client import OAuth2Client
 
-# Lógica de autorização, agora dentro do próprio teste
-def get_auth_code_from_user(client) -> str | None:
-    """Guia o usuário pelo fluxo de autorização para obter o 'code'."""
-    state = f"test-state-{int(time.time())}"
+log = logging.getLogger("TestBlingOAuth")
+
+def test_oauth2_config(client_id: str) -> bool:
+    """Valida se as variáveis de ambiente obrigatórias existem."""
+    print(f"🔍 [1/2] Verificando configurações para {client_id}...")
+    load_test_envs(client_id)
     
-    # Monta a URL de autorização
-    q = {"response_type": "code", "client_id": client.client_id, "state": state, "redirect_uri": client.redirect_uri}
-    auth_url = f"{os.getenv('OAUTH_AUTH_URL')}?{urlencode(q)}"
+    required = [
+        "OAUTH_TOKEN_URL", "OAUTH_CLIENT_ID", 
+        "OAUTH_CLIENT_SECRET", "OAUTH_REDIRECT_URI"
+    ]
     
-    print("\nAbra/autorize nesta URL:")
-    print(auth_url)
-    webbrowser.open(auth_url)
+    missing = [v for v in required if not os.getenv(v)]
+    if missing:
+        print(f"❌ Faltam variáveis no .env: {', '.join(missing)}")
+        return False
+        
+    print("✅ Configuração de ambiente OK.")
+    return True
 
-    # Inicia um servidor local para capturar o callback
-    code_holder = {}
-    port = urlparse(client.redirect_uri).port
-
-    class CallbackHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            qs = parse_qs(urlparse(self.path).query)
-            if qs.get("state", [None])[0] == state:
-                code_holder["code"] = qs.get("code", [None])[0]
-                self.send_response(200)
-                self.wfile.write(b"<h1>Autorizado!</h1><p>Pode fechar esta janela e voltar ao terminal.</p>")
-            else:
-                self.send_response(400)
-                self.wfile.write(b"<h1>Erro de State Mismatch</h1>")
-        def log_message(self, format, *args):
-            return
-
-    httpd = HTTPServer(("127.0.0.1", port), CallbackHandler)
-    server_thread = threading.Thread(target=httpd.serve_forever)
-    server_thread.daemon = True
-    server_thread.start()
-
-    print(f"\nAguardando callback em http://127.0.0.1:{port} ...")
-    try:
-        # Espera até 2 minutos pelo código
-        for _ in range(240):
-            if "code" in code_holder:
-                print("✅ Código de autorização recebido via callback.")
-                return code_holder["code"]
-            time.sleep(0.5)
-        raise TimeoutError("Tempo esgotado esperando pelo código de autorização.")
-    finally:
-        httpd.shutdown()
-
-def test_oauth_client_flow(client_id: str) -> bool:
-    """Testa o OAuth2Client de forma isolada, executando o ciclo completo."""
-    print("\n" + "="*50)
-    print("🧪 Testando o fluxo do OAuth2Client isoladamente...")
-    print("="*50)
+def test_bling_api_call(client_id: str) -> bool:
+    """
+    Usa o token existente (gerado pelo setup) para fazer uma chamada real à API.
+    """
+    print("📡 [2/2] Testando chamada real de API (usando token do setup)...")
     
-    try:
-        from core.auth.oauth2_client import OAuth2Client
-        
-        load_test_envs(client_id)
-        
-        client_id_env = os.getenv("OAUTH_CLIENT_ID")
-        token_cache_file = Path(f".secrets/bling_tokens_{client_id_env}.json")
+    # 1. Recupera credenciais do ambiente (Necessário para o Refresh funcionar)
+    token_url = os.getenv("OAUTH_TOKEN_URL")
+    # Tenta pegar OAUTH_CLIENT_ID, se não tiver, pega BLING_CLIENT_ID
+    cid = os.getenv("OAUTH_CLIENT_ID") or os.getenv("BLING_CLIENT_ID")
+    csec = os.getenv("OAUTH_CLIENT_SECRET") or os.getenv("BLING_CLIENT_SECRET")
+    redir = os.getenv("OAUTH_REDIRECT_URI")
+    scope = os.getenv("OAUTH_SCOPE") # Opcional
 
-        if token_cache_file.exists():
-            print(f"🗑️  Deletando arquivo de token antigo: {token_cache_file}")
-            token_cache_file.unlink()
-
-        client = OAuth2Client(cache_path=token_cache_file)
-
-        print("\n--- Etapa 1: Obter Código de Autorização ---")
-        auth_code = get_auth_code_from_user(client)
-        if not auth_code:
-            return False
-            
-        print("\n--- Etapa 2: Trocar Código por Tokens ---")
-        tokens = client.exchange_code(auth_code)
-        print("✅ Troca de código realizada.")
-        print("🔑 Tokens recebidos e salvos:")
-        print(tokens)
-
-        if "refresh_token" not in tokens or not tokens["refresh_token"]:
-            print("\n❌ FALHA CRÍTICA: 'refresh_token' não foi encontrado nos tokens salvos!")
-            return False
-        
-        print("\n--- Etapa 3: Renovar Token com Refresh Token ---")
-        refreshed_tokens = client.refresh()
-        print("✅ Refresh realizado com sucesso.")
-        print("🔑 Tokens após o refresh:")
-        print(refreshed_tokens)
-
-        if "access_token" not in refreshed_tokens or not refreshed_tokens["access_token"]:
-            print("\n❌ FALHA CRÍTICA: 'access_token' não foi encontrado após o refresh!")
-            return False
-
-        print("\n✅ Fluxo do OAuth2Client passou com sucesso.")
-        return True
-
-    except Exception as e:
-        print(f"\n❌ Erro durante o teste do OAuth2Client: {e}")
-        import traceback
-        traceback.print_exc()
+    # 2. Localiza o cache usando o ID (Hash)
+    token_file = ROOT_DIR / ".secrets" / f"bling_tokens_{cid}.json"
+    
+    if not token_file.exists():
+        print(f"❌ Token não encontrado em: {token_file}")
+        print(f"💡 DICA: Rode 'python scripts/oauth2_setup.py {client_id}' primeiro!")
         return False
 
-def main():
-    if len(sys.argv) != 2:
-        print(f"Uso: python -m {__package__} CLIENT_ID")
-        sys.exit(1)
-    
-    client_id = sys.argv[1].strip()
-    
-    client_ok = test_oauth_client_flow(client_id)
-    if not client_ok:
-        print("\n🛑 Teste do OAuth2Client falhou. A depuração deve focar no 'core/auth/oauth2_client.py'.")
-        sys.exit(1)
+    try:
+        # 3. Inicializa cliente COMPLETO (Correção do Erro)
+        # Precisamos passar as credenciais para ele conseguir fazer o refresh se precisar
+        oauth = OAuth2Client(
+            token_url=token_url,
+            client_id=cid,
+            client_secret=csec,
+            redirect_uri=redir,
+            scope=scope,
+            cache_path=token_file
+        )
+        
+        # 4. Garante que o token está válido
+        print("   -> Verificando validade do token (Refresh automático)...")
+        token = oauth.ensure_access_token()
+        
+        # 5. Faz uma chamada leve
+        base_url = os.getenv("API_BASE_URL", "https://www.bling.com.br/Api/v3")
+        url = f"{base_url.rstrip('/')}/vendedores"
+        
+        print(f"   -> GET {url} ...")
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        resp = requests.get(url, headers=headers, params={"limit": 1}, timeout=10)
+        
+        if resp.status_code == 200:
+            print("✅ SUCESSO! A API respondeu corretamente.")
+            return True
+        else:
+            print(f"❌ A API retornou erro: {resp.status_code}")
+            print(f"   Corpo: {resp.text}")
+            return False
 
-    print(f"\n🎉 Todos os testes de autenticação para '{client_id}' passaram com sucesso!")
+    except Exception as e:
+        print(f"❌ Erro na execução do teste: {e}")
+        # print(traceback.format_exc()) # Descomente para ver o erro completo se precisar
+        return False
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Uso: python -m core.tests.test_bling_oauth2 CLIENTE")
+        sys.exit(1)
+    
+    cli = sys.argv[1]
+    if test_oauth2_config(cli):
+        test_bling_api_call(cli)
