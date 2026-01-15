@@ -22,7 +22,7 @@ from core.errors.exceptions import (
     DataLoadError
 )
 # Importe os especialistas (Strategies) e o mapa de seleção
-from core.db_strategies import DbStrategy, MySQLStrategy, SQLServerStrategy
+from core.db_strategies import DbStrategy, MySQLStrategy
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,6 @@ log = logging.getLogger(__name__)
 # Ele mapeia o nome do dialeto do SQLAlchemy para a classe de estratégia correta.
 STRATEGY_MAP = {
     "mysql": MySQLStrategy(),
-    "mssql": SQLServerStrategy(),
 }
 
 
@@ -398,8 +397,22 @@ class DataMat:
                         
                         df_coerced.to_sql(temp_table_name_base, conn, if_exists='replace', index=False, schema='tempdb' if self.dialect == 'mssql' else None)
                         
-                        self.log.info(f"[{job_name}] Delegando operação de MERGE para a estratégia '{self.strategy.__class__.__name__}'.")
-                        inserted, updated = self.strategy.execute_merge(conn, df_coerced, temp_table_name, table, keys, compare_cols, schema)
+                        # --- SELEÇÃO DO MODO DE MERGE (Legacy vs IODKU) ---
+                        # Lê a configuração do Job (padrão 'legacy' se não existir)
+                        merge_mode = getattr(job_config, 'merge_mode', 'legacy')
+
+                        self.log.info(f"[{job_name}] Executando MERGE via estratégia '{self.strategy.__class__.__name__}' (Modo: {merge_mode}).")
+                        
+                        inserted, updated = self.strategy.execute_merge(
+                            conn, 
+                            df_coerced, 
+                            temp_table_name, 
+                            target_table=table, 
+                            key_cols=keys, 
+                            compare_cols=compare_cols, 
+                            schema=schema,
+                            merge_mode=merge_mode
+                        )
                         
                         transaction.commit()
                         return inserted, updated
@@ -416,59 +429,65 @@ class DataMat:
         return len(df), 0
 
     def _coerce_df_types_from_db_schema(self, df: pd.DataFrame, table_name: str, schema: Optional[str], conn: Connection, job_name: str) -> pd.DataFrame:
-        # """
-        # Lê os tipos de dados da tabela de destino no banco e força o DataFrame
-        # a seguir os mesmos tipos.
+        """
+        Lê os tipos de dados da tabela de destino no banco e força o DataFrame
+        a seguir os mesmos tipos.
         
-        # Especial para estratégia ELT: Se o banco for VARCHAR, converte tudo para String,
-        # mas garante que NaT (datas nulas) e NaN (números nulos) virem NULL (None).
-        # """
-        # self.log.info(f"   -> [{job_name}] Sincronizando tipos do DataFrame com a tabela '{table_name}'...")
+        Isso corrige o problema clássico de IDs numéricos virando float (123.0) 
+        ou int no Pandas quando o banco espera VARCHAR ('00123').
+        """
+        self.log.info(f"   -> [{job_name}] 🛡️  Sincronizando tipos do DataFrame com schema do banco...")
         
-        # try:
-        #     insp = inspect(conn)
-        #     # Recupera as colunas reais da tabela no banco
-        #     db_columns = insp.get_columns(table_name, schema=schema)
-        #     db_col_map = {c['name']: c['type'] for c in db_columns}
+        try:
+            insp = inspect(conn)
+            # Recupera as colunas reais da tabela no banco
+            db_columns = insp.get_columns(table_name, schema=schema)
+            # Cria um mapa: {'nome_coluna': 'TIPO_SQL_UPPER'} ex: {'id': 'VARCHAR(50)', 'valor': 'DECIMAL'}
+            db_col_map = {c['name']: str(c['type']).upper() for c in db_columns}
             
-        #     for col in df.columns:
-        #         if col not in db_col_map:
-        #             continue 
+            for col in df.columns:
+                if col not in db_col_map:
+                    continue 
                 
-        #         db_type = db_col_map[col]
-        #         db_type_str = str(db_type).upper()
+                db_type_str = db_col_map[col]
+                
+                # --- TRATAMENTO 1: TEXTO (VARCHAR, CHAR, TEXT) ---
+                if any(x in db_type_str for x in ['CHAR', 'TEXT', 'STRING']):
+                    # 1. Converte para string
+                    # 2. Substitui as strings "nan"/"None" geradas pelo astype(str) por None real (NULL no banco)
+                    df[col] = df[col].astype(str).replace({
+                        'nan': None, 
+                        'None': None, 
+                        '<NA>': None, 
+                        'NaT': None 
+                    })
+                    
+                    # --- O HACK DO JORGE ---
+                    # Remove o sufixo '.0' que o Pandas cria ao ler inteiros como floats.
+                    # Ex: Transforma "12345.0" em "12345".
+                    # Isso é CRUCIAL para chaves primárias baterem com o banco.
+                    if df[col].dtype == 'object': # Garante que estamos operando sobre strings/objetos
+                        # A lógica: Se não é nulo, é string, termina com .0 e o que vem antes é digito -> Corta o .0
+                        df[col] = df[col].apply(lambda x: x.split('.')[0] if x is not None and isinstance(x, str) and x.endswith('.0') and x.replace('.0','').isdigit() else x)
 
-        #         try:
-        #             # 1. SE O BANCO PEDE TEXTO (VARCHAR, CHAR, TEXT)
-        #             if any(x in db_type_str for x in ['CHAR', 'TEXT', 'STRING']):
-        #                 # Converte para string, mas mapeia os "nulos do pandas" para None real
-        #                 # 'NaT' é o nulo de data, 'nan' é o nulo de float/object
-        #                 df[col] = df[col].astype(str).replace({
-        #                     'nan': None, 
-        #                     'None': None, 
-        #                     '<NA>': None, 
-        #                     'NaT': None 
-        #                 })
+                # --- TRATAMENTO 2: INTEIROS ---
+                elif 'INT' in db_type_str:
+                    # 'Int64' (com maiúscula) permite Inteiros que aceitam Nulos (NaN)
+                    df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
 
-        #             # 2. SE O BANCO PEDE INTEIRO
-        #             elif 'INT' in db_type_str:
-        #                 df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+                # --- TRATAMENTO 3: DECIMAIS/FLOATS ---
+                elif any(x in db_type_str for x in ['DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'REAL']):
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        #             # 3. SE O BANCO PEDE DECIMAL/FLOAT
-        #             elif any(x in db_type_str for x in ['DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'REAL']):
-        #                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                # --- TRATAMENTO 4: DATAS ---
+                elif any(x in db_type_str for x in ['DATE', 'TIME']):
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        #             # 4. SE O BANCO PEDE DATA
-        #             elif any(x in db_type_str for x in ['DATE', 'TIME']):
-        #                 df[col] = pd.to_datetime(df[col], errors='coerce')
-
-        #         except Exception as e:
-        #             self.log.warning(f"   -> [{job_name}] Falha na coerção da coluna '{col}' ({db_type_str}): {e}")
-
-        #     return df
+            return df
             
-        # except Exception as e:
-        #     self.log.error(f"   -> [{job_name}] Erro crítico ao ler schema. Coerção pulada: {e}")
+        except Exception as e:
+            # Em caso de erro (ex: banco fora do ar durante inspect), loga e segue com o dado "sujo" para não parar o job
+            self.log.warning(f"   -> [{job_name}] ⚠️  Falha na coerção de tipos (prossigo com tipos inferidos): {e}")
             return df
         
     def _get_effective_keys(self, job_config: Any, mapping_spec: Any) -> List[str]:

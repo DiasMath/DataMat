@@ -26,13 +26,12 @@ class DbStrategy(ABC):
         target_table: str,
         key_cols: List[str],
         compare_cols: Optional[List[str]],
-        schema: Optional[str]
+        schema: Optional[str],
+        **kwargs
     ) -> Tuple[int, int]:
         """
         Executa a lógica de MERGE (UPSERT) específica do dialeto.
-
         Deve retornar uma tupla contendo (linhas_inseridas, linhas_atualizadas).
-        Esta contagem deve ser precisa.
         """
         pass
 
@@ -41,8 +40,6 @@ class DbStrategy(ABC):
         """
         Executa uma Stored Procedure que possui parâmetros de saída para contagem
         de linhas inseridas e atualizadas.
-
-        Deve retornar uma tupla contendo (linhas_inseridas, linhas_atualizadas).
         """
         pass
 
@@ -50,20 +47,115 @@ class DbStrategy(ABC):
 class MySQLStrategy(DbStrategy):
     """
     Especialista em interações de carga com o MySQL.
-    Utiliza a abordagem de UPDATE + INSERT para simular um MERGE.
+    Suporta dois modos:
+    1. 'legacy' (Padrão): UPDATE + INSERT (Seguro para tabelas SEM Unique Key)
+    2. 'iodku': INSERT ON DUPLICATE KEY UPDATE (Alta performance, exige Unique Key)
     """
 
-    def execute_merge(self, conn: Connection, df: pd.DataFrame, temp_table_name: str, target_table: str, key_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> Tuple[int, int]:
-        log.debug("Executando estratégia de MERGE para MySQL.")
-        # Lógica de UPDATE para registros existentes e modificados
+    def execute_merge(
+        self, 
+        conn: Connection, 
+        df: pd.DataFrame, 
+        temp_table_name: str, 
+        target_table: str, 
+        key_cols: List[str], 
+        compare_cols: Optional[List[str]], 
+        schema: Optional[str],
+        **kwargs
+    ) -> Tuple[int, int]:
+        
+        # Verifica qual modo de merge foi solicitado. Padrão é 'legacy'.
+        merge_mode = kwargs.get('merge_mode', 'legacy')
+
+        if merge_mode == 'iodku':
+            return self._execute_iodku_merge(conn, df, temp_table_name, target_table, key_cols, compare_cols, schema)
+        else:
+            return self._execute_legacy_merge(conn, df, temp_table_name, target_table, key_cols, compare_cols, schema)
+
+    # =========================================================================
+    #  INSERT ON DUPLICATE KEY UPDATE (IODKU)
+    #  Recomendado para tabelas com PK ou Unique Index definidos.
+    # =========================================================================
+    def _execute_iodku_merge(self, conn: Connection, df: pd.DataFrame, temp_table_name: str, target_table: str, key_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> Tuple[int, int]:
+        target = f"`{schema}`.`{target_table}`" if schema else f"`{target_table}`"
+        all_cols = list(df.columns)
+        # Prepara a lista de colunas para o INSERT: `col1`, `col2`...
+        cols_str = ", ".join([f"`{c}`" for c in all_cols])
+        
+        # Define quais colunas atualizar se a chave duplicar.
+        # Se compare_cols for None, atualiza tudo exceto as chaves (comportamento padrão de upsert)
+        cols_to_update = compare_cols if compare_cols is not None else [c for c in all_cols if c not in key_cols]
+        
+        if not cols_to_update:
+            # Caso especial: Se não tem nada para atualizar (ex: tabela só de IDs),
+            # usamos INSERT IGNORE para apenas ignorar duplicatas sem erro.
+            log.debug(f"[{target_table}] IODKU: Nada a atualizar. Usando INSERT IGNORE.")
+            sql = f"INSERT IGNORE INTO {target} ({cols_str}) SELECT {cols_str} FROM `{temp_table_name}`;"
+            result = conn.execute(text(sql))
+            return result.rowcount, 0
+
+        # Monta a cláusula ON DUPLICATE KEY UPDATE
+        # Sintaxe: col = VALUES(col) -> Pega o valor que veio da tabela temporária
+        update_assignments = ", ".join([f"`{c}` = VALUES(`{c}`)" for c in cols_to_update])
+        
+        sql = f"""
+            INSERT INTO {target} ({cols_str})
+            SELECT {cols_str} FROM `{temp_table_name}`
+            ON DUPLICATE KEY UPDATE {update_assignments};
+        """
+        
+        log.debug(f"[{target_table}] IODKU SQL:\n{sql}")
+        log.debug(f"[{target_table}] Executando IODKU (Merge Atômico)...")
+        result = conn.execute(text(sql))
+        
+        # --- LÓGICA DE CÁLCULO DE LINHAS DO MYSQL ---
+        # O MySQL retorna rowcount com a seguinte lógica no IODKU:
+        # 1 = Inserção de novo registro
+        # 2 = Atualização de registro existente
+        # 0 = Registro existe e é IDÊNTICO (sem mudança)
+        
+        total_rows_input = len(df)
+        rc = result.rowcount
+        
+        if rc > 0:
+            if rc < total_rows_input:
+                # Se rowcount é menor que o total de entrada, significa que houve muitos '0' (sem mudança).
+                # Como é difícil saber exato, assumimos atualização para simplificar ou zero inserções.
+                inserted = 0
+                updated = rc 
+            else:
+                # Matemática aproximada:
+                # updates = rc - total_entrada
+                updated_calc = rc - total_rows_input
+                updated = max(0, updated_calc)
+                inserted = max(0, total_rows_input - updated)
+        else:
+            inserted, updated = 0, 0
+            
+        return inserted, updated
+
+    # =========================================================================
+    #  MODO LEGADO: UPDATE + INSERT
+    #  Seguro para tabelas sem Unique Key, mas não é atômico.
+    # =========================================================================
+    def _execute_legacy_merge(self, conn: Connection, df: pd.DataFrame, temp_table_name: str, target_table: str, key_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> Tuple[int, int]:
+        log.debug(f"[{target_table}] Executando MERGE Legado (Update + Insert)...")
+        
+        # 1. Executa UPDATE
         update_sql = self._build_mysql_update_statement(target_table, temp_table_name, key_cols, list(df.columns), compare_cols, schema)
+        
+        log.debug(f"[{target_table}] LEGACY UPDATE SQL:\n{update_sql}")
+
         result_update = conn.execute(text(update_sql))
 
-        # Lógica de INSERT para novos registros
+        # 2. Executa INSERT (dos novos)
         insert_sql = self._build_mysql_insert_statement(target_table, temp_table_name, key_cols, list(df.columns), schema)
+
+        log.debug(f"[{target_table}] LEGACY UPDATE SQL:\n{update_sql}")
+
         result_insert = conn.execute(text(insert_sql))
         
-        # O MySQL retorna as contagens de linhas afetadas separadamente para cada comando.
+        # Coleta estatísticas
         inserted = result_insert.rowcount if result_insert.rowcount is not None else 0
         updated = result_update.rowcount if result_update.rowcount is not None else 0
         
@@ -91,7 +183,7 @@ class MySQLStrategy(DbStrategy):
         # 3. Constrói a string de parâmetros de forma segura.
         params_str = ", ".join(all_params_list)
         
-        # 4. Monta a chamada SQL final, que agora é flexível.
+        # 4. Monta a chamada SQL final.
         sql_call = f"CALL {proc_name}({params_str});"
         
         try:
@@ -104,29 +196,34 @@ class MySQLStrategy(DbStrategy):
                     return int(result[0]), int(result[1])
                 log.warning(f"Procedure MySQL '{proc_name}' deveria retornar contagens, mas não o fez.")
             
-            # Se não usa parâmetros de saída, ou se eles falharam, retorna 0,0.
             return 0, 0
         except Exception as e:
             log.error(f"Erro ao executar a procedure '{proc_name}'. SQL gerado: {sql_call}")
             raise e
     
+    # --- MÉTODOS AUXILIARES LEGADOS (MANTIDOS COM AJUSTE DE SEGURANÇA) ---
     def _build_mysql_update_statement(self, table: str, temp_table: str, keys: List[str], all_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> str:
         target = f"`{schema}`.`{table}`" if schema else f"`{table}`"
-        join = " AND ".join([f"dw.`{k}` = tmp.`{k}`" for k in keys])
+        
+        # JORGE: O operador <=> (spaceship) é crucial aqui. Ele compara NULLs corretamente (NULL <=> NULL é True).
+        # Sem isso, chaves nulas duplicam registros infinitamente.
+        join = " AND ".join([f"dw.`{k}` <=> tmp.`{k}`" for k in keys])
         
         cols_to_compare = compare_cols if compare_cols is not None else [c for c in all_cols if c not in keys]
         if not cols_to_compare:
-            return "SELECT 0; -- Nenhuma coluna para comparar, pulando o UPDATE."
+            return "SELECT 0; -- Nada a atualizar"
             
         update_set = ", ".join([f"dw.`{c}` = tmp.`{c}`" for c in cols_to_compare])
-        # O operador <=> é a forma segura de comparar valores no MySQL, pois trata NULLs corretamente.
         where_diff = " OR ".join([f"NOT (dw.`{c}` <=> tmp.`{c}`)" for c in cols_to_compare])
         
         return f"UPDATE {target} dw JOIN `{temp_table}` tmp ON {join} SET {update_set} WHERE {where_diff};"
 
     def _build_mysql_insert_statement(self, table: str, temp_table: str, keys: List[str], all_cols: List[str], schema: Optional[str]) -> str:
         target = f"`{schema}`.`{table}`" if schema else f"`{table}`"
-        join = " AND ".join([f"dw.`{k}` = tmp.`{k}`" for k in keys])
+        
+        # JORGE: Mesmo no insert, usamos <=> para garantir que o LEFT JOIN encontre o registro se ele existir (mesmo com chave nula)
+        join = " AND ".join([f"dw.`{k}` <=> tmp.`{k}`" for k in keys])
+        
         cols_to_select = ", ".join([f"tmp.`{c}`" for c in all_cols])
         cols_to_insert = ", ".join([f"`{c}`" for c in all_cols])
         
@@ -135,88 +232,4 @@ class MySQLStrategy(DbStrategy):
             SELECT {cols_to_select} FROM `{temp_table}` tmp
             LEFT JOIN {target} dw ON {join}
             WHERE dw.`{keys[0]}` IS NULL;
-        """
-
-
-class SQLServerStrategy(DbStrategy):
-    """
-    Especialista em interações de carga com o SQL Server.
-    Utiliza o comando MERGE nativo com a cláusula OUTPUT para garantir precisão nos logs.
-    """
-
-    def execute_merge(self, conn: Connection, df: pd.DataFrame, temp_table_name: str, target_table: str, key_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str]) -> Tuple[int, int]:
-        log.debug("Executando estratégia de MERGE para SQL Server.")
-        # Tabela temporária global (##) para armazenar o resultado da cláusula OUTPUT.
-        # É necessário que seja visível na sessão.
-        output_table = f"##output_{int(time.time() * 1000)}"
-        
-        try:
-            # 1. Cria a tabela temporária para capturar os resultados da ação do MERGE.
-            conn.execute(text(f"CREATE TABLE {output_table} (acao NVARCHAR(10));"))
-
-            # 2. Constrói e executa o comando MERGE.
-            merge_sql = self._build_sqlserver_merge_statement(
-                target_table, temp_table_name, key_cols, list(df.columns),
-                compare_cols, schema, output_table
-            )
-            conn.execute(text(merge_sql))
-
-            # 3. Conta os resultados da operação com precisão, consultando a tabela de output.
-            inserted_query = select(text("COUNT(*)")).select_from(text(output_table)).where(text("acao = 'INSERT'"))
-            inserted = conn.execute(inserted_query).scalar() or 0
-            
-            updated_query = select(text("COUNT(*)")).select_from(text(output_table)).where(text("acao = 'UPDATE'"))
-            updated = conn.execute(updated_query).scalar() or 0
-            
-            return inserted, updated
-        finally:
-            # 4. Garante a limpeza da tabela temporária de output em qualquer cenário.
-            conn.execute(text(f"DROP TABLE IF EXISTS {output_table};"))
-
-    def execute_procedure(self, conn: Connection, proc_name: str) -> Tuple[int, int]:
-        log.debug(f"Executando procedure SQL Server: {proc_name}")
-        # SQL Server requer um bloco T-SQL para declarar variáveis, executar a procedure
-        # com parâmetros OUTPUT e depois selecionar essas variáveis.
-        sql = f"""
-            DECLARE @inserted INT, @updated INT;
-            EXEC {proc_name} @p_inserted_rows = @inserted OUTPUT, @p_updated_rows = @updated OUTPUT;
-            SELECT @inserted, @updated;
-        """
-        result = conn.execute(text(sql)).fetchone()
-        
-        if result and result[0] is not None:
-            return int(result[0]), int(result[1])
-
-        log.warning(f"Procedure SQL Server '{proc_name}' não retornou contagens.")
-        return 0, 0
-
-    def _build_sqlserver_merge_statement(self, table: str, temp_table: str, keys: List[str], all_cols: List[str], compare_cols: Optional[List[str]], schema: Optional[str], output_table: str) -> str:
-        target = f"[{schema}].[{table}]" if schema else f"[{table}]"
-        join = " AND ".join([f"target.[{k}] = source.[{k}]" for k in keys])
-        
-        cols_to_compare = compare_cols if compare_cols is not None else [c for c in all_cols if c not in keys]
-        
-        update_clause = ""
-        # A cláusula de UPDATE só é adicionada se houver colunas para comparar.
-        if cols_to_compare:
-            update_set = ", ".join([f"target.[{c}] = source.[{c}]" for c in cols_to_compare])
-            # Compara os valores convertendo para string para uma verificação genérica e segura de NULLs.
-            # Para alta performance em tabelas muito grandes, uma comparação tipo a tipo seria melhor,
-            # mas esta é uma abordagem geral robusta.
-            where_diff = " OR ".join([f"ISNULL(CONVERT(NVARCHAR(MAX), target.[{c}]), '') <> ISNULL(CONVERT(NVARCHAR(MAX), source.[{c}]), '')" for c in cols_to_compare])
-            update_clause = f"""
-            WHEN MATCHED AND ({where_diff}) THEN
-                UPDATE SET {update_set}
-            """
-        
-        cols_insert = ", ".join([f"[{c}]" for c in all_cols])
-        cols_values = ", ".join([f"source.[{c}]" for c in all_cols])
-
-        return f"""
-            MERGE INTO {target} AS target
-            USING {temp_table} AS source ON ({join})
-            {update_clause}
-            WHEN NOT MATCHED BY TARGET THEN
-                INSERT ({cols_insert}) VALUES ({cols_values})
-            OUTPUT $action INTO {output_table};
         """

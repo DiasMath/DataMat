@@ -8,13 +8,12 @@ from pathlib import Path
 import traceback
 from typing import Any, List
 
-from dotenv import load_dotenv
+from core.env import load_tenant_env
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-
-
-# Importa as classes necessárias dos módulos do seu projeto
+# Importa as classes necessárias dos módulos
+from core.alerts import observer
 from core.datamat import DataMat, DataMatConfig
 from core.errors.exceptions import DataMatError
 from core.adapters.api_adapter import APISourceAdapter
@@ -25,7 +24,7 @@ from core.adapters.file_adapter import FileSourceAdapter
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
 
-# --- CONFIGURAÇÃO DE LOGGING (CORRIGIDA) ---
+# --- CONFIGURAÇÃO DE LOGGING ---
 LOGGING_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -36,17 +35,16 @@ LOGGING_CONFIG = {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "default",
-            # A linha 'encoding' foi REMOVIDA daqui, pois não é suportada pelo StreamHandler.
         },
         "file": {
             "class": "logging.FileHandler",
             "formatter": "default",
             "filename": "datamat.log",
             "mode": "a",
-            "encoding": "utf-8"  # Mantida aqui, pois é correta para arquivos.
+            "encoding": "utf-8"
         },
     },
-    "root": {"handlers": ["console", "file"], "level": "INFO"},
+    "root": {"handlers": ["console", "file"], "level": "INFO"}, # Alterar para DEBUG para ver o SQL e debug
 }
 logging.config.dictConfig(LOGGING_CONFIG)
 log = logging.getLogger(__name__)
@@ -141,16 +139,13 @@ def run_tenant_pipeline(
     total_rows_pipeline = 0
 
     try:
-        # Lógica de carregamento de configuração (permanece a mesma)
-        env_path = ROOT_DIR / "tenants" / tenant_id / "config" / ".env"
-        if not env_path.exists():
-            log.error(f"Arquivo .env não encontrado para o tenant '{tenant_id}' em {env_path}")
-            return -1, {"error": f"Arquivo .env não encontrado para o tenant '{tenant_id}'"}
-        load_dotenv(dotenv_path=env_path)
-
-        global_env_path = ROOT_DIR / ".env"
-        if global_env_path.exists():
-            load_dotenv(dotenv_path=global_env_path)
+        # 1. Carrega Variáveis de Ambiente (Centralizado)
+        # Tenta carregar Global + Tenant. Se falhar, retorna False.
+        if not load_tenant_env(tenant_id):
+            msg = f"Configuração (.env) não encontrada ou inválida para '{tenant_id}'"
+            # O próprio env.py já loga o erro no console, aqui notificamos o observer
+            observer.notify_failure(tenant_id, "Setup de Ambiente", Exception(msg))
+            return -1, {"error": msg}
 
         jobs_module = importlib.import_module(f"tenants.{tenant_id}.pipelines.jobs")
         mappings_module = importlib.import_module(f"tenants.{tenant_id}.pipelines.mappings")
@@ -227,9 +222,14 @@ def run_tenant_pipeline(
                     total_rows_pipeline += inserted_rows + updated_rows
 
                 except (DataMatError, Exception) as e:
-                    log.critical(f"Job '{job_spec.name}' falhou com erro inesperado: {e}", exc_info=True)
+                    log.critical(f"Job '{job_spec.name}' falhou: {e}", exc_info=True)
                     datamat.log_etl_error(process_name=job_spec.name, message=str(e))
-                    raise 
+                    
+                    # 1. Alerta Imediato (Já fazemos isso)
+                    observer.notify_failure(tenant_id, job_spec.name, e)
+                    
+                    # 2. O PULO DO GATO: Re-lança o erro com o nome do Job
+                    raise Exception(f"Falha no Job '{job_spec.name}': {e}") from e
         else:
             log.info("Flag '--procs-only' ativa. Pulando a execução dos jobs de STG.")
 
