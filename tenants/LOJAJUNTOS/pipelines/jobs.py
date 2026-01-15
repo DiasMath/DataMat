@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from heapq import merge
 from typing import List, Dict, Optional, Any
 import os
 
@@ -21,6 +22,7 @@ class Job:
     params: Optional[Dict[str, Any]] = None
     param_matrix: Optional[Dict[str, List[Any]]] = None
     incremental_config: Optional[Dict[str, Any]] = None
+    merge_mode: str = "legacy"  # "legacy" (padrão, seguro) ou "iodku" (rápido, exige Unique Key)
 
     # --- Parâmetros Específicos por Tipo de Adapter ---
     # API
@@ -97,6 +99,7 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         full_load_weekday=6,
+        merge_mode="iodku"
     ),
 
     # ========= CONTAS ========= #
@@ -117,6 +120,7 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         full_load_weekday=6,
+        merge_mode="iodku",
         params={
             "dataVencimentoInicial": "2025-01-01",
             "dataVencimentoFinal": "2025-12-31",
@@ -146,7 +150,7 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
-        # full_load_weekday=6,
+        merge_mode="iodku",
         params={
             "dataVencimentoInicial": "2026-01-01",  # Já pega tudo pra frente 
         },
@@ -175,6 +179,7 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         full_load_weekday=6, 
+        merge_mode="iodku",
         max_passes=1,
         params={
             "tipoFiltroData": "V",
@@ -208,6 +213,7 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         max_passes=1,
+        merge_mode="iodku",
         params={
             "tipoFiltroData": "V",
             "dataInicial": "2026-01-01",
@@ -250,7 +256,8 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
-        full_load_weekday=6
+        full_load_weekday=6,
+        merge_mode="iodku",
     ),
 
 
@@ -564,6 +571,8 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        merge_mode="iodku",
+        full_load_weekday=6,
         params={ "criterio" : 1}
     ),
 
@@ -581,7 +590,7 @@ JOBS: List[Job] = [
         data_path="data",
         detail_data_path="data",
         requests_per_minute=180,
-        enrichment_requests_per_minute=150
+        enrichment_requests_per_minute=150,
     ),
 
     Job(
@@ -595,6 +604,7 @@ JOBS: List[Job] = [
         paging=PAGING,
         data_path= "data",
         requests_per_minute=180,
+        merge_mode="iodku",
     ),
 
     Job(
@@ -607,6 +617,7 @@ JOBS: List[Job] = [
         auth=BLING_OAUTH_CONFIG,
         data_path= "data",
         requests_per_minute=180,
+        merge_mode="iodku",
         params={ "criterio" : 1}
     ),
 
