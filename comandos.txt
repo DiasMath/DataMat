@@ -1,9 +1,12 @@
 - Ativar ambiente virtual
     -  & d:/DATAMAT/_PY/.venv/Scripts/Activate.ps1
-- Rodar testes
-    - python -m core.tests.run_tests LOJAJUNTOS
+
 - Realizar a autenticação
     - python scripts/oauth2_setup.py LOJAJUNTOS
+
+- Rodar testes
+    - python -m core.tests.run_tests LOJAJUNTOS --test all
+
 - Ver os dados no dataframe sem inserir no banco
     - python -m core.main HASHTAG --job "Carga STG DRE Formatos" --preview
 - Extrair o dataframe em excel para o diretório data
@@ -15,5 +18,7 @@
     - .\.venv\Scripts\Activate
     - python -m pip install -r requirements.txt
 
+- Ativar modo debug
+    - ir em Main e alterar o root para DEBUG
 
     
