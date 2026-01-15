@@ -1,135 +1,176 @@
-# core/auth/oauth2_client.py
 from __future__ import annotations
-import base64, json, os, time
-from pathlib import Path
-from typing import Dict, Optional
+import json
+import time
 import requests
+import logging
+from pathlib import Path
+from typing import Dict, Any
+
+# Importa as exceções padronizadas
+from core.errors.exceptions import AuthenticationError, ConfigurationError
+
+log = logging.getLogger(__name__)
 
 class OAuth2Client:
     """
-    Cliente OAuth2 genérico (Authorization Code + Refresh).
-    Lê URLs e credenciais do .env (ou via __init__).
+    Cliente genérico para fluxo Authorization Code (OAuth2).
+    Gerencia troca de código, refresh automático e persistência de tokens em arquivo.
     """
 
     def __init__(
         self,
-        token_url: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        redirect_uri: Optional[str] = None,
-        scope: Optional[str] = None,
-        cache_path: str | Path = ".secrets/oauth_tokens.json",
-        timeout: int = 30,
-        use_basic_auth: bool = True,
-        extra_token_headers: Optional[Dict[str, str]] = None,
-    ) -> None:
-        self.token_url = token_url or os.getenv("OAUTH_TOKEN_URL", "")
-        self.client_id = client_id or os.getenv("OAUTH_CLIENT_ID", "")
-        self.client_secret = client_secret or os.getenv("OAUTH_CLIENT_SECRET", "")
-        self.redirect_uri = redirect_uri or os.getenv("OAUTH_REDIRECT_URI", "")
-        self.scope = scope or os.getenv("OAUTH_SCOPE", None)
-        self.timeout = int(timeout)
-        self.use_basic_auth = use_basic_auth
-        self.extra_token_headers = dict(extra_token_headers or {})
-        if not self.token_url or not self.client_id:
-            raise RuntimeError("OAuth2Client: OAUTH_TOKEN_URL e OAUTH_CLIENT_ID são obrigatórios.")
+        token_url: str,
+        client_id: str,
+        client_secret: str,
+        redirect_uri: str,
+        scope: str = "",
+        cache_path: Path = Path(".secrets/tokens.json")
+    ):
+        self.token_url = token_url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_uri
+        self.scope = scope
         self.cache_path = Path(cache_path)
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._tokens: Dict[str, str] = self._load_tokens()
+        
+        # Buffer de segurança: Renova o token se faltar menos de X segundos para expirar
+        # 300 segundos = 5 minutos.
+        self.expiry_buffer = 300 
 
-    def _load_tokens(self) -> Dict[str, str]:
-        if self.cache_path.exists():
-            try:
-                return json.loads(self.cache_path.read_text(encoding="utf-8"))
-            except Exception:
-                return {}
-        return {}
+        # Validação básica
+        if not self.client_id or not self.client_secret:
+            raise ConfigurationError("OAuth2Client: client_id e client_secret são obrigatórios.")
 
-    def _save_tokens(self) -> None:
-        self.cache_path.write_text(json.dumps(self._tokens, ensure_ascii=False, indent=2), encoding="utf-8")
+    def ensure_access_token(self) -> str:
+        """
+        Retorna um Access Token válido.
+        1. Tenta carregar do cache.
+        2. Verifica se expirou (considerando o buffer).
+        3. Se expirou, tenta Refresh.
+        4. Se não tem refresh token, levanta erro pedindo login manual.
+        """
+        tokens = self._load_tokens()
+        
+        if not tokens:
+            raise AuthenticationError(f"Nenhum token encontrado em {self.cache_path}. Realize o fluxo de autorização manual (run_tests.py --test complete).")
 
-    def _basic_auth_header(self) -> str:
-        raw = f"{self.client_id}:{self.client_secret}".encode()
-        return base64.b64encode(raw).decode()
+        access_token = tokens.get("access_token")
+        refresh_token = tokens.get("refresh_token")
+        expires_at = tokens.get("expires_at", 0)
+        
+        now = time.time()
+        
+        # Verifica se está vencido ou perto de vencer
+        if now >= (expires_at - self.expiry_buffer):
+            log.info("⌛ Token próximo da expiração ou vencido. Tentando Refresh...")
+            
+            if not refresh_token:
+                raise AuthenticationError("Token expirado e sem refresh_token disponível. Necessário re-autenticar.")
+            
+            new_tokens = self.refresh(refresh_token)
+            return new_tokens["access_token"]
+        
+        return access_token
 
-    def _token_headers(self) -> Dict[str, str]:
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
-        }
-        if self.use_basic_auth:
-            headers["Authorization"] = f"Basic {self._basic_auth_header()}"
-        headers.update(self.extra_token_headers)
-        return headers
-
-    def _post_token(self, data: Dict[str, str]) -> Dict:
-        resp = requests.post(self.token_url, headers=self._token_headers(), data=data, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
-
-    def _set_exp(self, tokens: Dict) -> Dict:
-        exp = int(tokens.get("expires_in", 3600))
-        tokens["expires_at"] = int(time.time()) + max(0, exp - 60)
-        return tokens
-
-    def exchange_code(self, authorization_code: Optional[str] = None) -> Dict:
-        """Troca o código de autorização por tokens, garantindo a preservação do refresh_token."""
-        code = authorization_code or os.getenv("OAUTH_AUTH_CODE", "")
-        if not code:
-            raise RuntimeError("OAuth2Client: informe OAUTH_AUTH_CODE para a primeira troca de tokens.")
+    def exchange_code(self, code: str) -> Dict[str, Any]:
+        """
+        Passo 2 do OAuth: Troca o 'Authorization Code' (recebido no callback)
+        pelos tokens definitivos (Access + Refresh).
+        """
+        log.info("🔄 Trocando Authorization Code por Tokens...")
         
         payload = {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": self.redirect_uri,
         }
-        if not self.use_basic_auth:
-            payload.update({"client_id": self.client_id, "client_secret": self.client_secret})
-        if self.scope:
-            payload["scope"] = self.scope
-            
-        new_tokens = self._set_exp(self._post_token(payload))
-
-        # --- CORREÇÃO DEFINITIVA AQUI ---
-        # A API do Bling SÓ ENVIA o refresh_token na primeira vez.
-        # Esta lógica garante que, uma vez obtido, ele nunca mais seja perdido.
-        if "refresh_token" not in new_tokens:
-            old_refresh_token = self._tokens.get("refresh_token")
-            if old_refresh_token:
-                new_tokens["refresh_token"] = old_refresh_token
         
-        self._tokens = new_tokens
-        # --- FIM DA CORREÇÃO ---
-
-        self._save_tokens()
-        return self._tokens
-
-    def refresh(self) -> Dict:
-        """Renova o token de acesso, preservando o refresh_token."""
-        rt = self._tokens.get("refresh_token")
-        if not rt:
-            raise RuntimeError("OAuth2Client: refresh_token ausente; refaça o authorize+code.")
-            
-        payload = {"grant_type": "refresh_token", "refresh_token": rt}
-        if not self.use_basic_auth:
-            payload.update({"client_id": self.client_id, "client_secret": self.client_secret})
-            
-        new_tokens = self._set_exp(self._post_token(payload))
-        new_tokens.setdefault("refresh_token", rt)
+        auth = requests.auth.HTTPBasicAuth(self.client_id, self.client_secret)
         
-        self._tokens.update(new_tokens)
-        self._save_tokens()
-        return self._tokens
-
-    def ensure_access_token(self) -> str:
-        """Garante um token de acesso válido, renovando se necessário."""
-        at = self._tokens.get("access_token")
-        exp = int(self._tokens.get("expires_at", 0))
-        
-        if not at or time.time() >= exp:
-            self.refresh()
-            at = self._tokens.get("access_token")
+        try:
+            response = requests.post(self.token_url, data=payload, auth=auth, timeout=15)
+            response.raise_for_status()
             
-        if not at:
-            raise RuntimeError("OAuth2Client: falha ao garantir access_token.")
-        return at
+            data = response.json()
+            self._save_tokens(data)
+            return data
+            
+        except requests.exceptions.RequestException as e:
+            msg = f"Falha na troca de código: {e}"
+            if e.response is not None:
+                msg += f" | Resposta: {e.response.text}"
+            raise AuthenticationError(msg) from e
+
+    def refresh(self, refresh_token: str = None) -> Dict[str, Any]:
+        """
+        Usa o Refresh Token para obter um novo Access Token sem interação do usuário.
+        """
+        if not refresh_token:
+            tokens = self._load_tokens()
+            refresh_token = tokens.get("refresh_token")
+            
+        if not refresh_token:
+            raise AuthenticationError("Impossível renovar: Refresh Token ausente.")
+
+        log.info("🔄 Executando Refresh Token...")
+        
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token
+        }
+        
+        auth = requests.auth.HTTPBasicAuth(self.client_id, self.client_secret)
+        
+        try:
+            response = requests.post(self.token_url, data=payload, auth=auth, timeout=15)
+            
+            if response.status_code in [400, 401]:
+                log.error(f"❌ Refresh Token rejeitado: {response.text}")
+                raise AuthenticationError("Refresh Token expirado ou inválido. Faça login novamente.")
+            
+            response.raise_for_status()
+            
+            data = response.json()
+            self._save_tokens(data)
+            log.info("✅ Token renovado com sucesso.")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            msg = f"Erro de conexão no Refresh: {e}"
+            if e.response is not None:
+                msg += f" | Resposta: {e.response.text}"
+            raise AuthenticationError(msg) from e
+
+    def _save_tokens(self, token_data: Dict[str, Any]):
+        """
+        Salva os tokens no arquivo JSON, calculando o tempo absoluto de expiração.
+        """
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        expires_in = token_data.get("expires_in", 3600)
+        token_data["expires_at"] = time.time() + int(expires_in)
+        
+        if "refresh_token" not in token_data:
+            old = self._load_tokens()
+            if old and "refresh_token" in old:
+                token_data["refresh_token"] = old["refresh_token"]
+                log.debug("Preservando refresh_token antigo (API não retornou um novo).")
+
+        try:
+            with open(self.cache_path, "w") as f:
+                json.dump(token_data, f, indent=2)
+            log.debug(f"Tokens salvos em {self.cache_path}")
+        except Exception as e:
+            log.error(f"Falha ao salvar cache de tokens: {e}")
+
+    def _load_tokens(self) -> Dict[str, Any]:
+        """Lê o JSON de tokens."""
+        if not self.cache_path.exists():
+            return {}
+        
+        try:
+            with open(self.cache_path, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            log.warning(f"Cache de token corrompido em {self.cache_path}. Ignorando.")
+            return {}
