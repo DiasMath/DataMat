@@ -1,56 +1,62 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
 
-rem ====== CONFIG ======
-set "PROJECT_DIR=D:\DATAMAT\_PY"
+rem ====== CONFIGURAÇÃO DINÂMICA DE CAMINHOS ======
+rem %~dp0 é o caminho deste arquivo .bat (ex: C:\Projetos\DataMat\scripts\)
+set "SCRIPT_DIR=%~dp0"
+
+rem Navega para a pasta pai (Raiz do Projeto)
+pushd "%SCRIPT_DIR%.."
+set "PROJECT_DIR=%CD%"
+popd
+
 set "VENV_DIR=%PROJECT_DIR%\.venv"
 set "PY=%VENV_DIR%\Scripts\python.exe"
 set "LOG_DIR=%PROJECT_DIR%\logs"
 
-rem ====== UTF-8 no shell e no Python ======
+rem ====== UTF-8 ======
 chcp 65001 >NUL
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=UTF-8"
 
-rem ====== CARREGA LOG_RETENTION_DAYS DO .ENV ======
-for /f "usebackq tokens=1,2 delims==" %%a in ("%PROJECT_DIR%\.env") do (
-  if /i "%%a"=="LOG_RETENTION_DAYS" set "LOG_RETENTION_DAYS=%%b"
-)
-
-rem fallback default (30 dias)
-if not defined LOG_RETENTION_DAYS set "LOG_RETENTION_DAYS=30"
-
-rem ====== TIMESTAMP (locale-safe) ======
+rem ====== TIMESTAMP ======
 for /f %%t in ('powershell -NoProfile -Command "Get-Date -Format \"yyyy-MM-dd_HHmmss\""') do set "TS=%%t"
 
-rem ====== PREP ======
-if not exist "%PROJECT_DIR%" (
-  echo [ERRO] PROJECT_DIR nao existe: %PROJECT_DIR%
-  exit /b 2
-)
-if not exist "%VENV_DIR%" (
-  echo [ERRO] VENV_DIR nao existe: %PROJECT_DIR%
-  exit /b 3
-)
+rem ====== VALIDAÇÃO ======
 if not exist "%PY%" (
-  echo [ERRO] Python do venv nao encontrado: %PY%
-  exit /b 4
+  echo [ERRO CRITICO] Python nao encontrado em: %PY%
+  echo Voce criou o ambiente virtual? (python -m venv .venv)
+  pause
+  exit /b 1
 )
+
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
-rem ====== LIMPEZA DE LOGS ANTIGOS ======
+rem ====== LIMPEZA DE LOGS ANTIGOS (Preservada) ======
+rem Tenta ler LOG_RETENTION_DAYS do .env, default 30
+set "LOG_RETENTION_DAYS=30"
+if exist "%PROJECT_DIR%\.env" (
+    for /f "usebackq tokens=1,2 delims==" %%a in ("%PROJECT_DIR%\.env") do (
+        if /i "%%a"=="LOG_RETENTION_DAYS" set "LOG_RETENTION_DAYS=%%b"
+    )
+)
+
+echo [INFO] Limpando logs com mais de %LOG_RETENTION_DAYS% dias...
 powershell -NoProfile -Command ^
   "Try { Get-ChildItem -Path '%LOG_DIR%' -Filter '*.log' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-[int]('%LOG_RETENTION_DAYS%')) } | Remove-Item -Force -ErrorAction Stop } Catch { }"
 
-set "LOGFILE=%LOG_DIR%\nightly_%TS%.log"
+rem ====== EXECUÇÃO ======
+set "LOGFILE=%LOG_DIR%\nightly_batch_%TS%.log"
+echo ==== Iniciando Carga Noturna em %TS% ==== >> "%LOGFILE%"
 
-rem ====== EXECUCAO ======
-echo ==== Iniciando core/master_nightly.py em %TS% ====>>"%LOGFILE%"
-pushd "%PROJECT_DIR%"
+rem Entra na raiz para garantir que os imports do Python funcionem
+cd /d "%PROJECT_DIR%"
 
-"%PY%" -X utf8 -m core.master_nightly >>"%LOGFILE%" 2>&1
+rem Executa o Master Nightly
+"%PY%" -X utf8 -m core.master_nightly >> "%LOGFILE%" 2>&1
 set "RC=%ERRORLEVEL%"
 
-popd
-echo ==== Fim: RC=%RC% ====>>"%LOGFILE%"
+echo ==== Fim da Execucao: RC=%RC% ==== >> "%LOGFILE%"
+
+rem Se der erro, nao segura a janela (para automacao), mas exibe o codigo
 exit /b %RC%
