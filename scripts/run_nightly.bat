@@ -1,62 +1,49 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
 
-rem ====== CONFIGURAÇÃO DINÂMICA DE CAMINHOS ======
-rem %~dp0 é o caminho deste arquivo .bat (ex: C:\Projetos\DataMat\scripts\)
+:: =======================================================
+:: DATAMAT - NIGHTLY BATCH RUNNER
+:: Wrapper simples para execução via Task Scheduler
+:: =======================================================
+
+:: 1. DEFINIÇÃO DE CAMINHOS ABSOLUTOS
 set "SCRIPT_DIR=%~dp0"
 
-rem Navega para a pasta pai (Raiz do Projeto)
+:: Navega para a pasta pai (Raiz do Projeto)
 pushd "%SCRIPT_DIR%.."
 set "PROJECT_DIR=%CD%"
 popd
 
+:: Configurações do Ambiente
 set "VENV_DIR=%PROJECT_DIR%\.venv"
 set "PY=%VENV_DIR%\Scripts\python.exe"
-set "LOG_DIR=%PROJECT_DIR%\logs"
+set "LOG_DIR=%PROJECT_DIR%\nightly_logs"
 
-rem ====== UTF-8 ======
+:: 2. FORÇAR UTF-8 (Essencial para o Python não quebrar com acentos)
 chcp 65001 >NUL
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=UTF-8"
 
-rem ====== TIMESTAMP ======
-for /f %%t in ('powershell -NoProfile -Command "Get-Date -Format \"yyyy-MM-dd_HHmmss\""') do set "TS=%%t"
-
-rem ====== VALIDAÇÃO ======
+:: 3. VALIDAÇÃO SIMPLES
 if not exist "%PY%" (
-  echo [ERRO CRITICO] Python nao encontrado em: %PY%
-  echo Voce criou o ambiente virtual? (python -m venv .venv)
-  pause
+  :: Se não achar o Python, não temos onde logar, então apenas sai com erro.
   exit /b 1
 )
 
+:: 4. LIMPEZA DE LOGS ANTIGOS (Manutenção)
+:: Mantive apenas a limpeza para não acumular arquivos infinitamente.
+:: Ele vai limpar os logs gerados pelo próprio Python na pasta nightly_logs.
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-
-rem ====== LIMPEZA DE LOGS ANTIGOS (Preservada) ======
-rem Tenta ler LOG_RETENTION_DAYS do .env, default 30
 set "LOG_RETENTION_DAYS=30"
-if exist "%PROJECT_DIR%\.env" (
-    for /f "usebackq tokens=1,2 delims==" %%a in ("%PROJECT_DIR%\.env") do (
-        if /i "%%a"=="LOG_RETENTION_DAYS" set "LOG_RETENTION_DAYS=%%b"
-    )
-)
+powershell -NoProfile -Command "Try { Get-ChildItem -Path '%LOG_DIR%' -Filter '*.log' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-[int]('%LOG_RETENTION_DAYS%')) } | Remove-Item -Force -ErrorAction SilentlyContinue } Catch { }"
 
-echo [INFO] Limpando logs com mais de %LOG_RETENTION_DAYS% dias...
-powershell -NoProfile -Command ^
-  "Try { Get-ChildItem -Path '%LOG_DIR%' -Filter '*.log' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-[int]('%LOG_RETENTION_DAYS%')) } | Remove-Item -Force -ErrorAction Stop } Catch { }"
-
-rem ====== EXECUÇÃO ======
-set "LOGFILE=%LOG_DIR%\nightly_batch_%TS%.log"
-echo ==== Iniciando Carga Noturna em %TS% ==== >> "%LOGFILE%"
-
-rem Entra na raiz para garantir que os imports do Python funcionem
+:: 5. EXECUÇÃO
+:: Garante que o diretório de trabalho seja a raiz do projeto
 cd /d "%PROJECT_DIR%"
 
-rem Executa o Master Nightly
-"%PY%" -X utf8 -m core.master_nightly >> "%LOGFILE%" 2>&1
+:: Executa o Master Nightly
+:: Sem redirecionamento (>>). O Python gerencia seu próprio arquivo de log.
+"%PY%" core\master_nightly.py
+
 set "RC=%ERRORLEVEL%"
-
-echo ==== Fim da Execucao: RC=%RC% ==== >> "%LOGFILE%"
-
-rem Se der erro, nao segura a janela (para automacao), mas exibe o codigo
 exit /b %RC%
