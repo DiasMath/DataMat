@@ -21,7 +21,15 @@ class Job:
     # --- Parâmetros gerais ---
     params: Optional[Dict[str, Any]] = None
     param_matrix: Optional[Dict[str, List[Any]]] = None
-    incremental_config: Optional[Dict[str, Any]] = None
+    incremental_config: Optional[Dict[str, Any]] = None 
+        # Exemplo: {
+        #    "enabled": True, 
+        #    "days_to_load": 7, 
+        #    "date_param_start": "dataInicial", 
+        #    "date_param_end": "dataFinal",
+        #    "date_filter_field": "tipoFiltro",  # Opcional (solicitado)
+        #    "date_filter_value": "V"            # Opcional (solicitado)
+        # }
     merge_mode: str = "legacy"  # "legacy" (padrão, seguro) ou "iodku" (rápido, exige Unique Key)
 
     # --- Parâmetros Específicos por Tipo de Adapter ---
@@ -120,6 +128,7 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         full_load_weekday=6,
+        truncate=False,
         merge_mode="iodku",
         params={
             "dataVencimentoInicial": "2025-01-01",
@@ -127,7 +136,7 @@ JOBS: List[Job] = [
         },
         param_matrix={ "situacao": [1, 2, 3, 4, 5] },
         incremental_config={
-            "enabled": False,
+            "enabled": True,
             "date_param_start": "dataVencimentoInicial",
             "date_param_end": "dataVencimentoFinal",
             "days_to_load": 90
@@ -150,6 +159,8 @@ JOBS: List[Job] = [
         detail_data_path="data",
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
+        # full_load_weekday=6,
+        # truncate=False,
         merge_mode="iodku",
         params={
             "dataVencimentoInicial": "2026-01-01",  # Já pega tudo pra frente 
@@ -179,6 +190,7 @@ JOBS: List[Job] = [
         requests_per_minute=180,
         enrichment_requests_per_minute=150,
         full_load_weekday=6, 
+        truncate=False,
         merge_mode="iodku",
         max_passes=1,
         params={
@@ -190,9 +202,11 @@ JOBS: List[Job] = [
             "situacoes[]": [1, 2, 3, 4, 5],
         },
         incremental_config={
-            "enabled": False,
+            "enabled": True,
             "date_param_start": "dataInicial",
             "date_param_end": "dataFinal",
+            "date_filter_field": "tipoFiltroData",
+            "date_filter_value": "V",
             "days_to_load": 90
         }
     ),
@@ -226,6 +240,8 @@ JOBS: List[Job] = [
             "enabled": False,
             "date_param_start": "dataInicial",
             "date_param_end": "dataFinal",
+            "date_filter_field": "tipoFiltroData",
+            "date_filter_value": "V",
             "days_to_load": 90
         }
     ),

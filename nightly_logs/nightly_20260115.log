@@ -1,0 +1,782 @@
+2026-01-15 22:32:53,027 - INFO - 🚀 INICIANDO BATERIA NOTURNA DETALHADA - 15/01/2026
+2026-01-15 22:32:53,030 - INFO - 📋 Modo Manual (NIGHTLY_CLIENTS): LOJAJUNTOS
+2026-01-15 22:32:53,030 - INFO - ▶️  Processando: LOJAJUNTOS
+2026-01-15 22:32:53,031 - INFO - ================ INICIANDO PIPELINE PARA O TENANT: LOJAJUNTOS ================
+2026-01-15 22:32:53,144 - INFO - DataMat inicializado com a estratégia 'MySQLStrategy'.
+2026-01-15 22:32:53,158 - INFO - Iniciando execução dos jobs de STG...
+2026-01-15 22:32:53,159 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:32:53,159 - INFO - ▶️  [Carga STG Bling Categorias Financeiras] Iniciando job...
+2026-01-15 22:32:53,159 - INFO - [Carga STG Bling Categorias Financeiras] Iniciando processo de transformação...
+2026-01-15 22:32:53,160 - INFO - [Carga STG Bling Categorias Financeiras] Extraindo dados brutos...
+2026-01-15 22:32:53,160 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/categorias/receitas-despesas | params={'pagina': 1, 'limite': 100}
+2026-01-15 22:32:53,539 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:32:53,539 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/categorias/receitas-despesas | params={'pagina': 2, 'limite': 100}
+2026-01-15 22:32:53,828 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:32:53,829 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/categorias/receitas-despesas | params={'pagina': 3, 'limite': 100}
+2026-01-15 22:32:54,140 - INFO -    -> Recebidos: 33 registos | Total acumulado na passagem: 233
+2026-01-15 22:32:54,145 - INFO - ✅ Última página detetada (33 de 100 registos). Encerrando paginação.
+2026-01-15 22:32:54,146 - INFO - 🔎 Enriquecendo 233 registos com estratégia 'sequential'...
+2026-01-15 22:33:13,628 - INFO -    ... 50/233 detalhes buscados
+2026-01-15 22:33:33,647 - INFO -    ... 100/233 detalhes buscados
+2026-01-15 22:33:53,698 - INFO -    ... 150/233 detalhes buscados
+2026-01-15 22:34:13,698 - INFO -    ... 200/233 detalhes buscados
+2026-01-15 22:34:27,409 - INFO - ✅ [Carga STG Bling Categorias Financeiras] Extração concluída: 233 registros brutos em 94.25s
+2026-01-15 22:34:27,410 - INFO - [Carga STG Bling Categorias Financeiras] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 22:34:27,410 - INFO - [Carga STG Bling Categorias Financeiras] Normalizando dados...
+2026-01-15 22:34:27,415 - INFO - [Carga STG Bling Categorias Financeiras] Após normalização: 233 registros. Colunas: ['id', 'idCategoriaPai', 'descricao', 'tipo', 'idGrupoDre', 'situacao']
+2026-01-15 22:34:27,415 - INFO - 🔧 [Carga STG Bling Categorias Financeiras] Preparando e mapeando dataframe...
+2026-01-15 22:34:27,421 - INFO - [Carga STG Bling Categorias Financeiras] Após mapeamento: 233 registros.
+2026-01-15 22:34:27,421 - INFO - 🧹 [Carga STG Bling Categorias Financeiras] Removendo duplicatas pela chave ['CodigoCategoriaFinanceira']...
+2026-01-15 22:34:27,424 - INFO - [Carga STG Bling Categorias Financeiras] Após deduplicação: 233 registros.
+2026-01-15 22:34:27,425 - INFO - 🔎 [Carga STG Bling Categorias Financeiras] Validando qualidade dos dados...
+2026-01-15 22:34:27,467 - INFO - ✅ [Carga STG Bling Categorias Financeiras] Validação de dados concluída.
+2026-01-15 22:34:27,467 - INFO - [Carga STG Bling Categorias Financeiras] Validação concluída com sucesso.
+2026-01-15 22:34:27,468 - INFO - [Carga STG Bling Categorias Financeiras] Transformações finais concluídas. DataFrame pronto para carga com 233 registros.
+2026-01-15 22:34:27,468 - INFO - 🚚 [Carga STG Bling Categorias Financeiras] Carregando 233 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_CategoriasFinanceiras'...
+2026-01-15 22:34:27,500 - INFO -    -> [Carga STG Bling Categorias Financeiras] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 22:34:27,587 - INFO - [Carga STG Bling Categorias Financeiras] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 22:34:27,663 - INFO - 🎉 [Carga STG Bling Categorias Financeiras] Carga concluída: 233 inseridos, 0 atualizados.
+2026-01-15 22:34:27,663 - INFO - ⏱️  [Carga STG Bling Categorias Financeiras] Tempo total do job: 94.50s
+2026-01-15 22:34:27,663 - INFO - [Carga STG Bling Contas a Pagar] Carga incremental ativada: 2025-10-17 até 2026-01-15
+2026-01-15 22:34:27,664 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:34:27,664 - INFO - ▶️  [Carga STG Bling Contas a Pagar] Iniciando job...
+2026-01-15 22:34:27,664 - INFO - [Carga STG Bling Contas a Pagar] Iniciando processo de transformação...
+2026-01-15 22:34:27,664 - INFO - [Carga STG Bling Contas a Pagar] Extraindo dados brutos...
+2026-01-15 22:34:27,664 - INFO - Executando 5 combinações de parâmetros.
+2026-01-15 22:34:27,664 - INFO - --- Conjunto 1/5: {'situacao': 1} ---
+2026-01-15 22:34:27,665 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 1, 'pagina': 1, 'limite': 100}
+2026-01-15 22:34:28,109 - INFO -    -> Recebidos: 10 registos | Total acumulado na passagem: 10
+2026-01-15 22:34:28,110 - INFO - ✅ Última página detetada (10 de 100 registos). Encerrando paginação.
+2026-01-15 22:34:28,111 - INFO - --- Conjunto 2/5: {'situacao': 2} ---
+2026-01-15 22:34:28,111 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 1, 'limite': 100}
+2026-01-15 22:34:28,508 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:34:28,508 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:29,009 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 2, 'limite': 100}
+2026-01-15 22:34:29,360 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:34:29,361 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:29,862 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 3, 'limite': 100}
+2026-01-15 22:34:30,187 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 300
+2026-01-15 22:34:30,187 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:30,688 - INFO - 📄 Página 4: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 4, 'limite': 100}
+2026-01-15 22:34:31,009 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 400
+2026-01-15 22:34:31,010 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:31,511 - INFO - 📄 Página 5: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 5, 'limite': 100}
+2026-01-15 22:34:31,848 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 500
+2026-01-15 22:34:31,848 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:32,349 - INFO - 📄 Página 6: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 6, 'limite': 100}
+2026-01-15 22:34:32,690 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 600
+2026-01-15 22:34:32,690 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:33,190 - INFO - 📄 Página 7: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 7, 'limite': 100}
+2026-01-15 22:34:33,528 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 700
+2026-01-15 22:34:33,528 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:34,029 - INFO - 📄 Página 8: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 8, 'limite': 100}
+2026-01-15 22:34:35,358 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 800
+2026-01-15 22:34:35,358 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:35,861 - INFO - 📄 Página 9: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 9, 'limite': 100}
+2026-01-15 22:34:36,199 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 900
+2026-01-15 22:34:36,199 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:36,700 - INFO - 📄 Página 10: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 10, 'limite': 100}
+2026-01-15 22:34:37,018 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1000
+2026-01-15 22:34:37,019 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:34:37,519 - INFO - 📄 Página 11: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 2, 'pagina': 11, 'limite': 100}
+2026-01-15 22:34:37,828 - INFO -    -> Recebidos: 11 registos | Total acumulado na passagem: 1011
+2026-01-15 22:34:37,828 - INFO - ✅ Última página detetada (11 de 100 registos). Encerrando paginação.
+2026-01-15 22:34:37,828 - INFO - --- Conjunto 3/5: {'situacao': 3} ---
+2026-01-15 22:34:37,829 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 3, 'pagina': 1, 'limite': 100}
+2026-01-15 22:34:38,137 - INFO -    -> Recebidos: 13 registos | Total acumulado na passagem: 13
+2026-01-15 22:34:38,138 - INFO - ✅ Última página detetada (13 de 100 registos). Encerrando paginação.
+2026-01-15 22:34:38,138 - INFO - --- Conjunto 4/5: {'situacao': 4} ---
+2026-01-15 22:34:38,138 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 4, 'pagina': 1, 'limite': 100}
+2026-01-15 22:34:38,457 - INFO -    -> Recebidos: 0 registos | Total acumulado na passagem: 0
+2026-01-15 22:34:38,458 - INFO - ✅ Última página detetada (0 de 100 registos). Encerrando paginação.
+2026-01-15 22:34:38,458 - INFO - --- Conjunto 5/5: {'situacao': 5} ---
+2026-01-15 22:34:38,458 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2025-10-17', 'dataVencimentoFinal': '2026-01-15', 'situacao': 5, 'pagina': 1, 'limite': 100}
+2026-01-15 22:34:38,807 - INFO -    -> Recebidos: 0 registos | Total acumulado na passagem: 0
+2026-01-15 22:34:38,808 - INFO - ✅ Última página detetada (0 de 100 registos). Encerrando paginação.
+2026-01-15 22:34:38,808 - INFO - 🔎 Enriquecendo 1034 registos com estratégia 'sequential'...
+2026-01-15 22:34:58,347 - INFO -    ... 50/1034 detalhes buscados
+2026-01-15 22:35:18,427 - INFO -    ... 100/1034 detalhes buscados
+2026-01-15 22:35:38,501 - INFO -    ... 150/1034 detalhes buscados
+2026-01-15 22:35:59,418 - INFO -    ... 200/1034 detalhes buscados
+2026-01-15 22:36:19,428 - INFO -    ... 250/1034 detalhes buscados
+2026-01-15 22:36:39,479 - INFO -    ... 300/1034 detalhes buscados
+2026-01-15 22:36:59,548 - INFO -    ... 350/1034 detalhes buscados
+2026-01-15 22:37:19,548 - INFO -    ... 400/1034 detalhes buscados
+2026-01-15 22:37:39,598 - INFO -    ... 450/1034 detalhes buscados
+2026-01-15 22:38:00,049 - INFO -    ... 500/1034 detalhes buscados
+2026-01-15 22:38:20,039 - INFO -    ... 550/1034 detalhes buscados
+2026-01-15 22:38:40,057 - INFO -    ... 600/1034 detalhes buscados
+2026-01-15 22:39:00,119 - INFO -    ... 650/1034 detalhes buscados
+2026-01-15 22:39:20,108 - INFO -    ... 700/1034 detalhes buscados
+2026-01-15 22:39:40,120 - INFO -    ... 750/1034 detalhes buscados
+2026-01-15 22:40:00,167 - INFO -    ... 800/1034 detalhes buscados
+2026-01-15 22:40:20,323 - INFO -    ... 850/1034 detalhes buscados
+2026-01-15 22:40:40,349 - INFO -    ... 900/1034 detalhes buscados
+2026-01-15 22:41:00,377 - INFO -    ... 950/1034 detalhes buscados
+2026-01-15 22:41:20,428 - INFO -    ... 1000/1034 detalhes buscados
+2026-01-15 22:41:34,598 - INFO - ✅ [Carga STG Bling Contas a Pagar] Extração concluída: 1034 registros brutos em 426.93s
+2026-01-15 22:41:34,598 - INFO - [Carga STG Bling Contas a Pagar] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 22:41:34,598 - INFO - [Carga STG Bling Contas a Pagar] Normalizando dados...
+2026-01-15 22:41:34,607 - INFO - [Carga STG Bling Contas a Pagar] Após normalização: 1034 registros. Colunas: ['id', 'situacao', 'vencimento', 'valor', 'saldo', 'dataEmissao', 'vencimentoOriginal', 'numeroDocumento', 'competencia', 'historico', 'numeroBanco', 'borderos', 'contato.id', 'formaPagamento.id', 'portador.id', 'categoria.id', 'ocorrencia.tipo', 'ocorrencia.considerarDiasUteis', 'ocorrencia.diaVencimento', 'ocorrencia.dataLimite', 'ocorrencia.numeroParcelas']
+2026-01-15 22:41:34,607 - INFO - 🔧 [Carga STG Bling Contas a Pagar] Preparando e mapeando dataframe...
+2026-01-15 22:41:34,613 - INFO - [Carga STG Bling Contas a Pagar] Após mapeamento: 1034 registros.
+2026-01-15 22:41:34,613 - INFO - 🧹 [Carga STG Bling Contas a Pagar] Removendo duplicatas pela chave ['CodigoLancamento']...
+2026-01-15 22:41:34,614 - INFO - [Carga STG Bling Contas a Pagar] Após deduplicação: 1034 registros.
+2026-01-15 22:41:34,615 - INFO - 🔎 [Carga STG Bling Contas a Pagar] Validando qualidade dos dados...
+2026-01-15 22:41:34,617 - INFO - ✅ [Carga STG Bling Contas a Pagar] Validação de dados concluída.
+2026-01-15 22:41:34,617 - INFO - [Carga STG Bling Contas a Pagar] Validação concluída com sucesso.
+2026-01-15 22:41:34,617 - INFO - [Carga STG Bling Contas a Pagar] Transformações finais concluídas. DataFrame pronto para carga com 1034 registros.
+2026-01-15 22:41:34,618 - INFO - 🚚 [Carga STG Bling Contas a Pagar] Carregando 1034 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContasPagar'...
+2026-01-15 22:41:34,618 - INFO -    -> [Carga STG Bling Contas a Pagar] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 22:41:34,739 - INFO - [Carga STG Bling Contas a Pagar] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 22:41:34,813 - INFO - 🎉 [Carga STG Bling Contas a Pagar] Carga concluída: 1021 inseridos, 13 atualizados.
+2026-01-15 22:41:34,814 - INFO - ⏱️  [Carga STG Bling Contas a Pagar] Tempo total do job: 427.15s
+2026-01-15 22:41:34,815 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:41:34,815 - INFO - ▶️  [Carga STG Bling Contas a Pagar 2026+] Iniciando job...
+2026-01-15 22:41:34,816 - INFO - [Carga STG Bling Contas a Pagar 2026+] Iniciando processo de transformação...
+2026-01-15 22:41:34,816 - INFO - [Carga STG Bling Contas a Pagar 2026+] Extraindo dados brutos...
+2026-01-15 22:41:34,816 - INFO - Executando 5 combinações de parâmetros.
+2026-01-15 22:41:34,816 - INFO - --- Conjunto 1/5: {'situacao': 1} ---
+2026-01-15 22:41:34,816 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 1, 'limite': 100}
+2026-01-15 22:41:35,248 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:41:35,248 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:35,749 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 2, 'limite': 100}
+2026-01-15 22:41:36,117 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:41:36,118 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:36,618 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 3, 'limite': 100}
+2026-01-15 22:41:36,979 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 300
+2026-01-15 22:41:36,980 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:37,480 - INFO - 📄 Página 4: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 4, 'limite': 100}
+2026-01-15 22:41:37,788 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 400
+2026-01-15 22:41:37,789 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:38,290 - INFO - 📄 Página 5: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 5, 'limite': 100}
+2026-01-15 22:41:38,637 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 500
+2026-01-15 22:41:38,638 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:39,138 - INFO - 📄 Página 6: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 6, 'limite': 100}
+2026-01-15 22:41:39,491 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 600
+2026-01-15 22:41:39,491 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:39,992 - INFO - 📄 Página 7: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 7, 'limite': 100}
+2026-01-15 22:41:40,359 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 700
+2026-01-15 22:41:40,359 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:40,861 - INFO - 📄 Página 8: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 8, 'limite': 100}
+2026-01-15 22:41:41,167 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 800
+2026-01-15 22:41:41,168 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:41,668 - INFO - 📄 Página 9: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 1, 'pagina': 9, 'limite': 100}
+2026-01-15 22:41:41,999 - INFO -    -> Recebidos: 44 registos | Total acumulado na passagem: 844
+2026-01-15 22:41:42,000 - INFO - ✅ Última página detetada (44 de 100 registos). Encerrando paginação.
+2026-01-15 22:41:42,000 - INFO - --- Conjunto 2/5: {'situacao': 2} ---
+2026-01-15 22:41:42,001 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 2, 'pagina': 1, 'limite': 100}
+2026-01-15 22:41:42,318 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:41:42,318 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:42,819 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 2, 'pagina': 2, 'limite': 100}
+2026-01-15 22:41:43,113 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:41:43,113 - INFO -    -> Aguardando 0.50s antes da próxima página...
+2026-01-15 22:41:43,614 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 2, 'pagina': 3, 'limite': 100}
+2026-01-15 22:41:43,949 - INFO -    -> Recebidos: 88 registos | Total acumulado na passagem: 288
+2026-01-15 22:41:43,950 - INFO - ✅ Última página detetada (88 de 100 registos). Encerrando paginação.
+2026-01-15 22:41:43,950 - INFO - --- Conjunto 3/5: {'situacao': 3} ---
+2026-01-15 22:41:43,951 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 3, 'pagina': 1, 'limite': 100}
+2026-01-15 22:41:44,230 - INFO -    -> Recebidos: 40 registos | Total acumulado na passagem: 40
+2026-01-15 22:41:44,231 - INFO - ✅ Última página detetada (40 de 100 registos). Encerrando paginação.
+2026-01-15 22:41:44,231 - INFO - --- Conjunto 4/5: {'situacao': 4} ---
+2026-01-15 22:41:44,232 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 4, 'pagina': 1, 'limite': 100}
+2026-01-15 22:41:44,571 - INFO -    -> Recebidos: 1 registos | Total acumulado na passagem: 1
+2026-01-15 22:41:44,572 - INFO - ✅ Última página detetada (1 de 100 registos). Encerrando paginação.
+2026-01-15 22:41:44,572 - INFO - --- Conjunto 5/5: {'situacao': 5} ---
+2026-01-15 22:41:44,572 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/pagar | params={'dataVencimentoInicial': '2026-01-01', 'situacao': 5, 'pagina': 1, 'limite': 100}
+2026-01-15 22:41:44,888 - INFO -    -> Recebidos: 0 registos | Total acumulado na passagem: 0
+2026-01-15 22:41:44,889 - INFO - ✅ Última página detetada (0 de 100 registos). Encerrando paginação.
+2026-01-15 22:41:44,890 - INFO - 🔎 Enriquecendo 1173 registos com estratégia 'sequential'...
+2026-01-15 22:42:04,448 - INFO -    ... 50/1173 detalhes buscados
+2026-01-15 22:42:27,349 - INFO -    ... 100/1173 detalhes buscados
+2026-01-15 22:42:48,398 - INFO -    ... 150/1173 detalhes buscados
+2026-01-15 22:43:10,150 - INFO -    ... 200/1173 detalhes buscados
+2026-01-15 22:43:30,351 - INFO -    ... 250/1173 detalhes buscados
+2026-01-15 22:43:50,488 - INFO -    ... 300/1173 detalhes buscados
+2026-01-15 22:44:10,538 - INFO -    ... 350/1173 detalhes buscados
+2026-01-15 22:44:30,569 - INFO -    ... 400/1173 detalhes buscados
+2026-01-15 22:44:50,618 - INFO -    ... 450/1173 detalhes buscados
+2026-01-15 22:45:11,840 - INFO -    ... 500/1173 detalhes buscados
+2026-01-15 22:45:31,891 - INFO -    ... 550/1173 detalhes buscados
+2026-01-15 22:45:52,130 - INFO -    ... 600/1173 detalhes buscados
+2026-01-15 22:46:12,269 - INFO -    ... 650/1173 detalhes buscados
+2026-01-15 22:46:32,300 - INFO -    ... 700/1173 detalhes buscados
+2026-01-15 22:46:52,352 - INFO -    ... 750/1173 detalhes buscados
+2026-01-15 22:47:13,130 - INFO -    ... 800/1173 detalhes buscados
+2026-01-15 22:47:33,150 - INFO -    ... 850/1173 detalhes buscados
+2026-01-15 22:47:53,179 - INFO -    ... 900/1173 detalhes buscados
+2026-01-15 22:48:13,216 - INFO -    ... 950/1173 detalhes buscados
+2026-01-15 22:48:33,454 - INFO -    ... 1000/1173 detalhes buscados
+2026-01-15 22:48:53,492 - INFO -    ... 1050/1173 detalhes buscados
+2026-01-15 22:49:13,569 - INFO -    ... 1100/1173 detalhes buscados
+2026-01-15 22:49:33,598 - INFO -    ... 1150/1173 detalhes buscados
+2026-01-15 22:49:43,222 - INFO - ✅ [Carga STG Bling Contas a Pagar 2026+] Extração concluída: 1173 registros brutos em 488.41s
+2026-01-15 22:49:43,223 - INFO - [Carga STG Bling Contas a Pagar 2026+] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 22:49:43,223 - INFO - [Carga STG Bling Contas a Pagar 2026+] Normalizando dados...
+2026-01-15 22:49:43,273 - INFO - [Carga STG Bling Contas a Pagar 2026+] Após normalização: 1173 registros. Colunas: ['id', 'situacao', 'vencimento', 'valor', 'saldo', 'dataEmissao', 'vencimentoOriginal', 'numeroDocumento', 'competencia', 'historico', 'numeroBanco', 'borderos', 'contato.id', 'formaPagamento.id', 'portador.id', 'categoria.id', 'ocorrencia.tipo', 'ocorrencia.considerarDiasUteis', 'ocorrencia.diaVencimento', 'ocorrencia.numeroParcelas', 'ocorrencia.dataLimite']
+2026-01-15 22:49:43,275 - INFO - 🔧 [Carga STG Bling Contas a Pagar 2026+] Preparando e mapeando dataframe...
+2026-01-15 22:49:43,309 - INFO - [Carga STG Bling Contas a Pagar 2026+] Após mapeamento: 1173 registros.
+2026-01-15 22:49:43,309 - INFO - 🧹 [Carga STG Bling Contas a Pagar 2026+] Removendo duplicatas pela chave ['CodigoLancamento']...
+2026-01-15 22:49:43,312 - INFO - [Carga STG Bling Contas a Pagar 2026+] Após deduplicação: 1173 registros.
+2026-01-15 22:49:43,313 - INFO - 🔎 [Carga STG Bling Contas a Pagar 2026+] Validando qualidade dos dados...
+2026-01-15 22:49:43,328 - INFO - ✅ [Carga STG Bling Contas a Pagar 2026+] Validação de dados concluída.
+2026-01-15 22:49:43,329 - INFO - [Carga STG Bling Contas a Pagar 2026+] Validação concluída com sucesso.
+2026-01-15 22:49:43,329 - INFO - [Carga STG Bling Contas a Pagar 2026+] Transformações finais concluídas. DataFrame pronto para carga com 1173 registros.
+2026-01-15 22:49:43,332 - INFO - 🚚 [Carga STG Bling Contas a Pagar 2026+] Carregando 1173 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContasPagar'...
+2026-01-15 22:49:43,340 - INFO -    -> [Carga STG Bling Contas a Pagar 2026+] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 22:49:43,588 - INFO - [Carga STG Bling Contas a Pagar 2026+] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 22:49:43,729 - INFO - 🎉 [Carga STG Bling Contas a Pagar 2026+] Carga concluída: 1154 inseridos, 19 atualizados.
+2026-01-15 22:49:43,730 - INFO - ⏱️  [Carga STG Bling Contas a Pagar 2026+] Tempo total do job: 488.91s
+2026-01-15 22:49:43,756 - INFO - [Carga STG Bling Contas a Receber] Carga incremental ativada: 2025-10-17 até 2026-01-15 | Filtro: tipoFiltroData=V
+2026-01-15 22:49:43,758 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:49:43,760 - INFO - ▶️  [Carga STG Bling Contas a Receber] Iniciando job...
+2026-01-15 22:49:43,760 - INFO - [Carga STG Bling Contas a Receber] Iniciando processo de transformação...
+2026-01-15 22:49:43,761 - INFO - [Carga STG Bling Contas a Receber] Extraindo dados brutos...
+2026-01-15 22:49:43,761 - INFO - Executando 5 combinações de parâmetros.
+2026-01-15 22:49:43,761 - INFO - --- Conjunto 1/5: {'situacoes[]': 1} ---
+2026-01-15 22:49:43,762 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 1, 'pagina': 1, 'limite': 100}
+2026-01-15 22:49:44,590 - INFO -    -> Recebidos: 14 registos | Total acumulado na passagem: 14
+2026-01-15 22:49:44,590 - INFO - ✅ Última página detetada (14 de 100 registos). Encerrando paginação.
+2026-01-15 22:49:44,591 - INFO - --- Conjunto 2/5: {'situacoes[]': 2} ---
+2026-01-15 22:49:44,591 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 1, 'limite': 100}
+2026-01-15 22:49:47,107 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:49:47,109 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 2, 'limite': 100}
+2026-01-15 22:49:49,413 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:49:49,414 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 3, 'limite': 100}
+2026-01-15 22:49:51,458 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 300
+2026-01-15 22:49:51,459 - INFO - 📄 Página 4: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 4, 'limite': 100}
+2026-01-15 22:49:53,251 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 400
+2026-01-15 22:49:53,252 - INFO - 📄 Página 5: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 5, 'limite': 100}
+2026-01-15 22:49:55,152 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 500
+2026-01-15 22:49:55,153 - INFO - 📄 Página 6: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 6, 'limite': 100}
+2026-01-15 22:49:56,854 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 600
+2026-01-15 22:49:56,855 - INFO - 📄 Página 7: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 7, 'limite': 100}
+2026-01-15 22:49:58,460 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 700
+2026-01-15 22:49:58,461 - INFO - 📄 Página 8: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 2, 'pagina': 8, 'limite': 100}
+2026-01-15 22:49:59,032 - INFO -    -> Recebidos: 11 registos | Total acumulado na passagem: 711
+2026-01-15 22:49:59,032 - INFO - ✅ Última página detetada (11 de 100 registos). Encerrando paginação.
+2026-01-15 22:49:59,033 - INFO - --- Conjunto 3/5: {'situacoes[]': 3} ---
+2026-01-15 22:49:59,033 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 3, 'pagina': 1, 'limite': 100}
+2026-01-15 22:49:59,380 - INFO -    -> Recebidos: 2 registos | Total acumulado na passagem: 2
+2026-01-15 22:49:59,380 - INFO - ✅ Última página detetada (2 de 100 registos). Encerrando paginação.
+2026-01-15 22:49:59,381 - INFO - --- Conjunto 4/5: {'situacoes[]': 4} ---
+2026-01-15 22:49:59,381 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 4, 'pagina': 1, 'limite': 100}
+2026-01-15 22:49:59,655 - INFO -    -> Recebidos: 0 registos | Total acumulado na passagem: 0
+2026-01-15 22:49:59,655 - INFO - ✅ Última página detetada (0 de 100 registos). Encerrando paginação.
+2026-01-15 22:49:59,656 - INFO - --- Conjunto 5/5: {'situacoes[]': 5} ---
+2026-01-15 22:49:59,656 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2025-10-17', 'dataFinal': '2026-01-15', 'situacoes[]': 5, 'pagina': 1, 'limite': 100}
+2026-01-15 22:50:00,067 - INFO -    -> Recebidos: 1 registos | Total acumulado na passagem: 1
+2026-01-15 22:50:00,067 - INFO - ✅ Última página detetada (1 de 100 registos). Encerrando paginação.
+2026-01-15 22:50:00,071 - INFO - 🔎 Enriquecendo 728 registos com estratégia 'sequential'...
+2026-01-15 22:50:19,980 - INFO -    ... 50/728 detalhes buscados
+2026-01-15 22:50:40,003 - INFO -    ... 100/728 detalhes buscados
+2026-01-15 22:51:00,229 - INFO -    ... 150/728 detalhes buscados
+2026-01-15 22:51:20,251 - INFO -    ... 200/728 detalhes buscados
+2026-01-15 22:51:40,291 - INFO -    ... 250/728 detalhes buscados
+2026-01-15 22:52:00,390 - INFO -    ... 300/728 detalhes buscados
+2026-01-15 22:52:20,407 - INFO -    ... 350/728 detalhes buscados
+2026-01-15 22:52:40,569 - INFO -    ... 400/728 detalhes buscados
+2026-01-15 22:53:00,610 - INFO -    ... 450/728 detalhes buscados
+2026-01-15 22:53:20,760 - INFO -    ... 500/728 detalhes buscados
+2026-01-15 22:53:40,750 - INFO -    ... 550/728 detalhes buscados
+2026-01-15 22:54:00,800 - INFO -    ... 600/728 detalhes buscados
+2026-01-15 22:54:21,061 - INFO -    ... 650/728 detalhes buscados
+2026-01-15 22:54:41,166 - INFO -    ... 700/728 detalhes buscados
+2026-01-15 22:54:52,792 - INFO - ✅ [Carga STG Bling Contas a Receber] Extração concluída: 728 registros brutos em 309.03s
+2026-01-15 22:54:52,794 - INFO - [Carga STG Bling Contas a Receber] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 22:54:52,794 - INFO - [Carga STG Bling Contas a Receber] Normalizando dados...
+2026-01-15 22:54:52,837 - INFO - [Carga STG Bling Contas a Receber] Após normalização: 728 registros. Colunas: ['id', 'situacao', 'vencimento', 'valor', 'idTransacao', 'linkQRCodePix', 'linkBoleto', 'dataEmissao', 'saldo', 'vencimentoOriginal', 'numeroDocumento', 'competencia', 'historico', 'numeroBanco', 'borderos', 'contato.id', 'contato.nome', 'contato.numeroDocumento', 'contato.tipo', 'formaPagamento.id', 'formaPagamento.codigoFiscal', 'contaContabil.id', 'contaContabil.descricao', 'origem.id', 'origem.tipoOrigem', 'origem.numero', 'origem.dataEmissao', 'origem.valor', 'origem.situacao', 'origem.url', 'portador.id', 'categoria.id', 'vendedor.id', 'ocorrencia.tipo', 'ocorrencia.considerarDiasUteis', 'ocorrencia.diaVencimento', 'ocorrencia.dataLimite']
+2026-01-15 22:54:52,838 - INFO - 🔧 [Carga STG Bling Contas a Receber] Preparando e mapeando dataframe...
+2026-01-15 22:54:52,856 - INFO - [Carga STG Bling Contas a Receber] Após mapeamento: 728 registros.
+2026-01-15 22:54:52,857 - INFO - 🧹 [Carga STG Bling Contas a Receber] Removendo duplicatas pela chave ['CodigoLancamento']...
+2026-01-15 22:54:52,860 - INFO - [Carga STG Bling Contas a Receber] Após deduplicação: 728 registros.
+2026-01-15 22:54:52,861 - INFO - 🔎 [Carga STG Bling Contas a Receber] Validando qualidade dos dados...
+2026-01-15 22:54:52,865 - INFO - ✅ [Carga STG Bling Contas a Receber] Validação de dados concluída.
+2026-01-15 22:54:52,866 - INFO - [Carga STG Bling Contas a Receber] Validação concluída com sucesso.
+2026-01-15 22:54:52,866 - INFO - [Carga STG Bling Contas a Receber] Transformações finais concluídas. DataFrame pronto para carga com 728 registros.
+2026-01-15 22:54:52,871 - INFO - 🚚 [Carga STG Bling Contas a Receber] Carregando 728 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContasReceber'...
+2026-01-15 22:54:52,872 - INFO -    -> [Carga STG Bling Contas a Receber] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 22:54:53,105 - INFO - [Carga STG Bling Contas a Receber] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 22:54:53,240 - INFO - 🎉 [Carga STG Bling Contas a Receber] Carga concluída: 714 inseridos, 14 atualizados.
+2026-01-15 22:54:53,241 - INFO - ⏱️  [Carga STG Bling Contas a Receber] Tempo total do job: 309.48s
+2026-01-15 22:54:53,242 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:54:53,244 - INFO - ▶️  [Carga STG Bling Contas a Receber 2026] Iniciando job...
+2026-01-15 22:54:53,244 - INFO - [Carga STG Bling Contas a Receber 2026] Iniciando processo de transformação...
+2026-01-15 22:54:53,245 - INFO - [Carga STG Bling Contas a Receber 2026] Extraindo dados brutos...
+2026-01-15 22:54:53,245 - INFO - Executando 5 combinações de parâmetros.
+2026-01-15 22:54:53,245 - INFO - --- Conjunto 1/5: {'situacoes[]': 1} ---
+2026-01-15 22:54:53,245 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 1, 'pagina': 1, 'limite': 100}
+2026-01-15 22:54:54,960 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:54:54,961 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 1, 'pagina': 2, 'limite': 100}
+2026-01-15 22:54:55,380 - INFO -    -> Recebidos: 12 registos | Total acumulado na passagem: 112
+2026-01-15 22:54:55,380 - INFO - ✅ Última página detetada (12 de 100 registos). Encerrando paginação.
+2026-01-15 22:54:55,381 - INFO - --- Conjunto 2/5: {'situacoes[]': 2} ---
+2026-01-15 22:54:55,381 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 2, 'pagina': 1, 'limite': 100}
+2026-01-15 22:54:56,681 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:54:56,682 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 2, 'pagina': 2, 'limite': 100}
+2026-01-15 22:54:57,934 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:54:57,935 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 2, 'pagina': 3, 'limite': 100}
+2026-01-15 22:54:58,706 - INFO -    -> Recebidos: 54 registos | Total acumulado na passagem: 254
+2026-01-15 22:54:58,707 - INFO - ✅ Última página detetada (54 de 100 registos). Encerrando paginação.
+2026-01-15 22:54:58,707 - INFO - --- Conjunto 3/5: {'situacoes[]': 3} ---
+2026-01-15 22:54:58,708 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 3, 'pagina': 1, 'limite': 100}
+2026-01-15 22:54:58,999 - INFO -    -> Recebidos: 1 registos | Total acumulado na passagem: 1
+2026-01-15 22:54:58,999 - INFO - ✅ Última página detetada (1 de 100 registos). Encerrando paginação.
+2026-01-15 22:54:59,000 - INFO - --- Conjunto 4/5: {'situacoes[]': 4} ---
+2026-01-15 22:54:59,000 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 4, 'pagina': 1, 'limite': 100}
+2026-01-15 22:54:59,340 - INFO -    -> Recebidos: 0 registos | Total acumulado na passagem: 0
+2026-01-15 22:54:59,341 - INFO - ✅ Última página detetada (0 de 100 registos). Encerrando paginação.
+2026-01-15 22:54:59,342 - INFO - --- Conjunto 5/5: {'situacoes[]': 5} ---
+2026-01-15 22:54:59,342 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas/receber | params={'tipoFiltroData': 'V', 'dataInicial': '2026-01-01', 'dataFinal': '2026-12-31', 'situacoes[]': 5, 'pagina': 1, 'limite': 100}
+2026-01-15 22:54:59,689 - INFO -    -> Recebidos: 2 registos | Total acumulado na passagem: 2
+2026-01-15 22:54:59,690 - INFO - ✅ Última página detetada (2 de 100 registos). Encerrando paginação.
+2026-01-15 22:54:59,691 - INFO - 🔎 Enriquecendo 369 registos com estratégia 'sequential'...
+2026-01-15 22:55:19,480 - INFO -    ... 50/369 detalhes buscados
+2026-01-15 22:55:39,510 - INFO -    ... 100/369 detalhes buscados
+2026-01-15 22:55:59,632 - INFO -    ... 150/369 detalhes buscados
+2026-01-15 22:56:19,872 - INFO -    ... 200/369 detalhes buscados
+2026-01-15 22:56:39,890 - INFO -    ... 250/369 detalhes buscados
+2026-01-15 22:57:00,051 - INFO -    ... 300/369 detalhes buscados
+2026-01-15 22:57:22,332 - INFO -    ... 350/369 detalhes buscados
+2026-01-15 22:57:30,370 - INFO - ✅ [Carga STG Bling Contas a Receber 2026] Extração concluída: 369 registros brutos em 157.13s
+2026-01-15 22:57:30,371 - INFO - [Carga STG Bling Contas a Receber 2026] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 22:57:30,372 - INFO - [Carga STG Bling Contas a Receber 2026] Normalizando dados...
+2026-01-15 22:57:30,398 - INFO - [Carga STG Bling Contas a Receber 2026] Após normalização: 369 registros. Colunas: ['id', 'situacao', 'vencimento', 'valor', 'idTransacao', 'linkQRCodePix', 'linkBoleto', 'dataEmissao', 'saldo', 'vencimentoOriginal', 'numeroDocumento', 'competencia', 'historico', 'numeroBanco', 'borderos', 'contato.id', 'contato.nome', 'contato.numeroDocumento', 'contato.tipo', 'formaPagamento.id', 'formaPagamento.codigoFiscal', 'contaContabil.id', 'contaContabil.descricao', 'origem.id', 'origem.tipoOrigem', 'origem.numero', 'origem.dataEmissao', 'origem.valor', 'origem.situacao', 'origem.url', 'portador.id', 'categoria.id', 'vendedor.id', 'ocorrencia.tipo', 'ocorrencia.considerarDiasUteis', 'ocorrencia.diaVencimento', 'ocorrencia.dataLimite']
+2026-01-15 22:57:30,398 - INFO - 🔧 [Carga STG Bling Contas a Receber 2026] Preparando e mapeando dataframe...
+2026-01-15 22:57:30,413 - INFO - [Carga STG Bling Contas a Receber 2026] Após mapeamento: 369 registros.
+2026-01-15 22:57:30,414 - INFO - 🧹 [Carga STG Bling Contas a Receber 2026] Removendo duplicatas pela chave ['CodigoLancamento']...
+2026-01-15 22:57:30,416 - INFO - [Carga STG Bling Contas a Receber 2026] Após deduplicação: 369 registros.
+2026-01-15 22:57:30,417 - INFO - 🔎 [Carga STG Bling Contas a Receber 2026] Validando qualidade dos dados...
+2026-01-15 22:57:30,421 - INFO - ✅ [Carga STG Bling Contas a Receber 2026] Validação de dados concluída.
+2026-01-15 22:57:30,422 - INFO - [Carga STG Bling Contas a Receber 2026] Validação concluída com sucesso.
+2026-01-15 22:57:30,422 - INFO - [Carga STG Bling Contas a Receber 2026] Transformações finais concluídas. DataFrame pronto para carga com 369 registros.
+2026-01-15 22:57:30,425 - INFO - 🚚 [Carga STG Bling Contas a Receber 2026] Carregando 369 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContasReceber'...
+2026-01-15 22:57:30,426 - INFO -    -> [Carga STG Bling Contas a Receber 2026] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 22:57:30,606 - INFO - [Carga STG Bling Contas a Receber 2026] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 22:57:30,693 - INFO - 🎉 [Carga STG Bling Contas a Receber 2026] Carga concluída: 365 inseridos, 4 atualizados.
+2026-01-15 22:57:30,694 - INFO - ⏱️  [Carga STG Bling Contas a Receber 2026] Tempo total do job: 157.45s
+2026-01-15 22:57:30,697 - INFO - ▶️  [Carga Temporaria STG Bling File Contas Pagar e Receber] Iniciando job...
+2026-01-15 22:57:30,697 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Iniciando processo de transformação...
+2026-01-15 22:57:30,698 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Extraindo dados brutos...
+2026-01-15 22:57:30,862 - INFO - ✅ [Carga Temporaria STG Bling File Contas Pagar e Receber] Extração concluída: 8190 registros brutos em 0.16s
+2026-01-15 22:57:30,865 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Dados já estão em formato de DataFrame. Normalização pulada.
+2026-01-15 22:57:30,868 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Após normalização: 8190 registros. Colunas: ['Data', 'Cliente/Fornecedor', 'CPF/CNPJ', 'Categoria', 'Histórico', 'Tipo', 'Valor', 'Banco', 'Período', 'Id']
+2026-01-15 22:57:30,869 - INFO - 🔧 [Carga Temporaria STG Bling File Contas Pagar e Receber] Preparando e mapeando dataframe...
+2026-01-15 22:57:30,934 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Após mapeamento: 8190 registros.
+2026-01-15 22:57:30,935 - INFO - 🧹 [Carga Temporaria STG Bling File Contas Pagar e Receber] Removendo duplicatas pela chave ['CodigoMovimentacaoFinanceiraOrigem']...
+2026-01-15 22:57:30,942 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Após deduplicação: 8190 registros.
+2026-01-15 22:57:30,943 - INFO - 🔎 [Carga Temporaria STG Bling File Contas Pagar e Receber] Validando qualidade dos dados...
+2026-01-15 22:57:30,947 - INFO - ✅ [Carga Temporaria STG Bling File Contas Pagar e Receber] Validação de dados concluída.
+2026-01-15 22:57:30,948 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Validação concluída com sucesso.
+2026-01-15 22:57:30,949 - INFO - [Carga Temporaria STG Bling File Contas Pagar e Receber] Transformações finais concluídas. DataFrame pronto para carga com 8190 registros.
+2026-01-15 22:57:30,949 - INFO - 🚚 [Carga Temporaria STG Bling File Contas Pagar e Receber] Carregando 8190 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_DRIVE_MovimentacoesFinanceiras'...
+2026-01-15 22:57:30,950 - INFO -    -> 🧨 Modo TRUNCATE ativado. Limpando tabela 'LOJAJUNTOS_STG.tbSTG_BLING_DRIVE_MovimentacoesFinanceiras' antes da carga...
+2026-01-15 22:57:34,733 - INFO - 🎉 [Carga Temporaria STG Bling File Contas Pagar e Receber] Carga concluída: 8190 inseridos, 0 atualizados.
+2026-01-15 22:57:34,734 - INFO - ⏱️  [Carga Temporaria STG Bling File Contas Pagar e Receber] Tempo total do job: 4.04s
+2026-01-15 22:57:34,737 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:57:34,738 - INFO - ▶️  [Carga STG Bling Contas Contabeis] Iniciando job...
+2026-01-15 22:57:34,738 - INFO - [Carga STG Bling Contas Contabeis] Iniciando processo de transformação...
+2026-01-15 22:57:34,739 - INFO - [Carga STG Bling Contas Contabeis] Extraindo dados brutos...
+2026-01-15 22:57:34,739 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contas-contabeis | params={'pagina': 1, 'limite': 100}
+2026-01-15 22:57:35,140 - INFO -    -> Recebidos: 12 registos | Total acumulado na passagem: 12
+2026-01-15 22:57:35,141 - INFO - ✅ Última página detetada (12 de 100 registos). Encerrando paginação.
+2026-01-15 22:57:35,141 - INFO - 🔎 Enriquecendo 12 registos com estratégia 'sequential'...
+2026-01-15 22:57:39,969 - INFO - ✅ [Carga STG Bling Contas Contabeis] Extração concluída: 12 registros brutos em 5.23s
+2026-01-15 22:57:39,970 - INFO - [Carga STG Bling Contas Contabeis] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 22:57:39,970 - INFO - [Carga STG Bling Contas Contabeis] Normalizando dados...
+2026-01-15 22:57:39,972 - INFO - [Carga STG Bling Contas Contabeis] Após normalização: 12 registros. Colunas: ['id', 'descricao', 'saldoInicial', 'dataInicioTransacoes']
+2026-01-15 22:57:39,973 - INFO - 🔧 [Carga STG Bling Contas Contabeis] Preparando e mapeando dataframe...
+2026-01-15 22:57:39,980 - INFO - [Carga STG Bling Contas Contabeis] Após mapeamento: 12 registros.
+2026-01-15 22:57:39,981 - INFO - 🧹 [Carga STG Bling Contas Contabeis] Removendo duplicatas pela chave ['CodigoContaContabil']...
+2026-01-15 22:57:40,004 - INFO - [Carga STG Bling Contas Contabeis] Após deduplicação: 12 registros.
+2026-01-15 22:57:40,004 - INFO - 🔎 [Carga STG Bling Contas Contabeis] Validando qualidade dos dados...
+2026-01-15 22:57:40,009 - INFO - ✅ [Carga STG Bling Contas Contabeis] Validação de dados concluída.
+2026-01-15 22:57:40,009 - INFO - [Carga STG Bling Contas Contabeis] Validação concluída com sucesso.
+2026-01-15 22:57:40,010 - INFO - [Carga STG Bling Contas Contabeis] Transformações finais concluídas. DataFrame pronto para carga com 12 registros.
+2026-01-15 22:57:40,010 - INFO - 🚚 [Carga STG Bling Contas Contabeis] Carregando 12 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContasContabeis'...
+2026-01-15 22:57:40,011 - INFO -    -> [Carga STG Bling Contas Contabeis] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 22:57:40,074 - INFO - [Carga STG Bling Contas Contabeis] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 22:57:40,105 - INFO - 🎉 [Carga STG Bling Contas Contabeis] Carga concluída: 12 inseridos, 0 atualizados.
+2026-01-15 22:57:40,106 - INFO - ⏱️  [Carga STG Bling Contas Contabeis] Tempo total do job: 5.37s
+2026-01-15 22:57:40,107 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 22:57:40,108 - INFO - ▶️  [Carga STG Bling Contatos] Iniciando job...
+2026-01-15 22:57:40,108 - INFO - [Carga STG Bling Contatos] Iniciando processo de transformação...
+2026-01-15 22:57:40,108 - INFO - [Carga STG Bling Contatos] Extraindo dados brutos...
+2026-01-15 22:57:40,109 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 1, 'limite': 100}
+2026-01-15 22:57:40,514 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 22:57:40,515 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 2, 'limite': 100}
+2026-01-15 22:57:40,823 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 22:57:40,824 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 3, 'limite': 100}
+2026-01-15 22:57:41,161 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 300
+2026-01-15 22:57:41,161 - INFO - 📄 Página 4: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 4, 'limite': 100}
+2026-01-15 22:57:41,483 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 400
+2026-01-15 22:57:41,483 - INFO - 📄 Página 5: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 5, 'limite': 100}
+2026-01-15 22:57:41,816 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 500
+2026-01-15 22:57:41,817 - INFO - 📄 Página 6: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 6, 'limite': 100}
+2026-01-15 22:57:42,152 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 600
+2026-01-15 22:57:42,153 - INFO - 📄 Página 7: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 7, 'limite': 100}
+2026-01-15 22:57:42,480 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 700
+2026-01-15 22:57:42,481 - INFO - 📄 Página 8: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 8, 'limite': 100}
+2026-01-15 22:57:42,830 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 800
+2026-01-15 22:57:42,831 - INFO - 📄 Página 9: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 9, 'limite': 100}
+2026-01-15 22:57:43,360 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 900
+2026-01-15 22:57:43,361 - INFO - 📄 Página 10: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 10, 'limite': 100}
+2026-01-15 22:57:43,661 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1000
+2026-01-15 22:57:43,662 - INFO - 📄 Página 11: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 11, 'limite': 100}
+2026-01-15 22:57:43,981 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1100
+2026-01-15 22:57:43,982 - INFO - 📄 Página 12: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 12, 'limite': 100}
+2026-01-15 22:57:44,349 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1200
+2026-01-15 22:57:44,350 - INFO - 📄 Página 13: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 13, 'limite': 100}
+2026-01-15 22:57:44,651 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1300
+2026-01-15 22:57:44,651 - INFO - 📄 Página 14: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 14, 'limite': 100}
+2026-01-15 22:57:45,001 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1400
+2026-01-15 22:57:45,002 - INFO - 📄 Página 15: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 15, 'limite': 100}
+2026-01-15 22:57:45,320 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1500
+2026-01-15 22:57:45,321 - INFO - 📄 Página 16: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 16, 'limite': 100}
+2026-01-15 22:57:45,660 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1600
+2026-01-15 22:57:45,661 - INFO - 📄 Página 17: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 17, 'limite': 100}
+2026-01-15 22:57:46,019 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1700
+2026-01-15 22:57:46,020 - INFO - 📄 Página 18: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 18, 'limite': 100}
+2026-01-15 22:57:46,361 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1800
+2026-01-15 22:57:46,362 - INFO - 📄 Página 19: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 19, 'limite': 100}
+2026-01-15 22:57:46,660 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1900
+2026-01-15 22:57:46,661 - INFO - 📄 Página 20: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 20, 'limite': 100}
+2026-01-15 22:57:47,026 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2000
+2026-01-15 22:57:47,027 - INFO - 📄 Página 21: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 21, 'limite': 100}
+2026-01-15 22:57:47,333 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2100
+2026-01-15 22:57:47,333 - INFO - 📄 Página 22: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 22, 'limite': 100}
+2026-01-15 22:57:47,658 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2200
+2026-01-15 22:57:47,659 - INFO - 📄 Página 23: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 23, 'limite': 100}
+2026-01-15 22:57:47,982 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2300
+2026-01-15 22:57:47,983 - INFO - 📄 Página 24: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 24, 'limite': 100}
+2026-01-15 22:57:48,320 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2400
+2026-01-15 22:57:48,321 - INFO - 📄 Página 25: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 25, 'limite': 100}
+2026-01-15 22:57:48,669 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2500
+2026-01-15 22:57:48,670 - INFO - 📄 Página 26: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 26, 'limite': 100}
+2026-01-15 22:57:49,020 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2600
+2026-01-15 22:57:49,021 - INFO - 📄 Página 27: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 27, 'limite': 100}
+2026-01-15 22:57:49,408 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2700
+2026-01-15 22:57:49,408 - INFO - 📄 Página 28: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 28, 'limite': 100}
+2026-01-15 22:57:49,732 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2800
+2026-01-15 22:57:49,733 - INFO - 📄 Página 29: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 29, 'limite': 100}
+2026-01-15 22:57:50,041 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2900
+2026-01-15 22:57:50,041 - INFO - 📄 Página 30: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 30, 'limite': 100}
+2026-01-15 22:57:50,383 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 3000
+2026-01-15 22:57:50,384 - INFO - 📄 Página 31: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 31, 'limite': 100}
+2026-01-15 22:57:50,703 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 3100
+2026-01-15 22:57:50,704 - INFO - 📄 Página 32: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 32, 'limite': 100}
+2026-01-15 22:57:51,033 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 3200
+2026-01-15 22:57:51,034 - INFO - 📄 Página 33: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 33, 'limite': 100}
+2026-01-15 22:57:51,381 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 3300
+2026-01-15 22:57:51,382 - INFO - 📄 Página 34: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 34, 'limite': 100}
+2026-01-15 22:57:51,714 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 3400
+2026-01-15 22:57:51,715 - INFO - 📄 Página 35: GET https://api.bling.com.br/Api/v3/contatos | params={'criterio': 1, 'pagina': 35, 'limite': 100}
+2026-01-15 22:57:52,041 - INFO -    -> Recebidos: 70 registos | Total acumulado na passagem: 3470
+2026-01-15 22:57:52,041 - INFO - ✅ Última página detetada (70 de 100 registos). Encerrando paginação.
+2026-01-15 22:57:52,045 - INFO - 🔎 Enriquecendo 3470 registos com estratégia 'sequential'...
+2026-01-15 22:58:11,629 - INFO -    ... 50/3470 detalhes buscados
+2026-01-15 22:58:31,640 - INFO -    ... 100/3470 detalhes buscados
+2026-01-15 22:58:51,669 - INFO -    ... 150/3470 detalhes buscados
+2026-01-15 22:59:11,730 - INFO -    ... 200/3470 detalhes buscados
+2026-01-15 22:59:32,479 - INFO -    ... 250/3470 detalhes buscados
+2026-01-15 22:59:52,690 - INFO -    ... 300/3470 detalhes buscados
+2026-01-15 23:00:12,752 - INFO -    ... 350/3470 detalhes buscados
+2026-01-15 23:00:32,890 - INFO -    ... 400/3470 detalhes buscados
+2026-01-15 23:00:53,069 - INFO -    ... 450/3470 detalhes buscados
+2026-01-15 23:01:21,158 - INFO -    ... 500/3470 detalhes buscados
+2026-01-15 23:01:41,189 - INFO -    ... 550/3470 detalhes buscados
+2026-01-15 23:02:01,359 - INFO -    ... 600/3470 detalhes buscados
+2026-01-15 23:02:22,501 - INFO -    ... 650/3470 detalhes buscados
+2026-01-15 23:02:42,554 - INFO -    ... 700/3470 detalhes buscados
+2026-01-15 23:03:04,039 - INFO -    ... 750/3470 detalhes buscados
+2026-01-15 23:03:24,200 - INFO -    ... 800/3470 detalhes buscados
+2026-01-15 23:03:44,260 - INFO -    ... 850/3470 detalhes buscados
+2026-01-15 23:04:04,299 - INFO -    ... 900/3470 detalhes buscados
+2026-01-15 23:04:24,361 - INFO -    ... 950/3470 detalhes buscados
+2026-01-15 23:04:44,604 - INFO -    ... 1000/3470 detalhes buscados
+2026-01-15 23:05:04,920 - INFO -    ... 1050/3470 detalhes buscados
+2026-01-15 23:05:24,971 - INFO -    ... 1100/3470 detalhes buscados
+2026-01-15 23:05:45,041 - INFO -    ... 1150/3470 detalhes buscados
+2026-01-15 23:06:05,120 - INFO -    ... 1200/3470 detalhes buscados
+2026-01-15 23:06:25,320 - INFO -    ... 1250/3470 detalhes buscados
+2026-01-15 23:06:45,357 - INFO -    ... 1300/3470 detalhes buscados
+2026-01-15 23:07:05,411 - INFO -    ... 1350/3470 detalhes buscados
+2026-01-15 23:07:26,210 - INFO -    ... 1400/3470 detalhes buscados
+2026-01-15 23:07:46,259 - INFO -    ... 1450/3470 detalhes buscados
+2026-01-15 23:08:06,290 - INFO -    ... 1500/3470 detalhes buscados
+2026-01-15 23:08:26,510 - INFO -    ... 1550/3470 detalhes buscados
+2026-01-15 23:08:46,610 - INFO -    ... 1600/3470 detalhes buscados
+2026-01-15 23:09:06,741 - INFO -    ... 1650/3470 detalhes buscados
+2026-01-15 23:09:26,980 - INFO -    ... 1700/3470 detalhes buscados
+2026-01-15 23:09:46,999 - INFO -    ... 1750/3470 detalhes buscados
+2026-01-15 23:10:07,071 - INFO -    ... 1800/3470 detalhes buscados
+2026-01-15 23:10:27,350 - INFO -    ... 1850/3470 detalhes buscados
+2026-01-15 23:10:47,469 - INFO -    ... 1900/3470 detalhes buscados
+2026-01-15 23:11:07,569 - INFO -    ... 1950/3470 detalhes buscados
+2026-01-15 23:11:27,738 - INFO -    ... 2000/3470 detalhes buscados
+2026-01-15 23:11:47,921 - INFO -    ... 2050/3470 detalhes buscados
+2026-01-15 23:12:08,901 - INFO -    ... 2100/3470 detalhes buscados
+2026-01-15 23:12:28,962 - INFO -    ... 2150/3470 detalhes buscados
+2026-01-15 23:12:49,132 - INFO -    ... 2200/3470 detalhes buscados
+2026-01-15 23:13:09,671 - INFO -    ... 2250/3470 detalhes buscados
+2026-01-15 23:13:29,729 - INFO -    ... 2300/3470 detalhes buscados
+2026-01-15 23:13:49,980 - INFO -    ... 2350/3470 detalhes buscados
+2026-01-15 23:14:10,040 - INFO -    ... 2400/3470 detalhes buscados
+2026-01-15 23:14:30,031 - INFO -    ... 2450/3470 detalhes buscados
+2026-01-15 23:14:50,060 - INFO -    ... 2500/3470 detalhes buscados
+2026-01-15 23:15:10,180 - INFO -    ... 2550/3470 detalhes buscados
+2026-01-15 23:15:30,200 - INFO -    ... 2600/3470 detalhes buscados
+2026-01-15 23:15:50,451 - INFO -    ... 2650/3470 detalhes buscados
+2026-01-15 23:16:12,991 - INFO -    ... 2700/3470 detalhes buscados
+2026-01-15 23:16:33,184 - INFO -    ... 2750/3470 detalhes buscados
+2026-01-15 23:16:53,380 - INFO -    ... 2800/3470 detalhes buscados
+2026-01-15 23:17:13,410 - INFO -    ... 2850/3470 detalhes buscados
+2026-01-15 23:17:33,480 - INFO -    ... 2900/3470 detalhes buscados
+2026-01-15 23:17:53,493 - INFO -    ... 2950/3470 detalhes buscados
+2026-01-15 23:18:13,851 - INFO -    ... 3000/3470 detalhes buscados
+2026-01-15 23:18:33,851 - INFO -    ... 3050/3470 detalhes buscados
+2026-01-15 23:18:54,049 - INFO -    ... 3100/3470 detalhes buscados
+2026-01-15 23:19:15,091 - INFO -    ... 3150/3470 detalhes buscados
+2026-01-15 23:19:35,204 - INFO -    ... 3200/3470 detalhes buscados
+2026-01-15 23:19:55,188 - INFO -    ... 3250/3470 detalhes buscados
+2026-01-15 23:20:15,580 - INFO -    ... 3300/3470 detalhes buscados
+2026-01-15 23:20:35,551 - INFO -    ... 3350/3470 detalhes buscados
+2026-01-15 23:20:55,580 - INFO -    ... 3400/3470 detalhes buscados
+2026-01-15 23:21:15,771 - INFO -    ... 3450/3470 detalhes buscados
+2026-01-15 23:21:24,234 - INFO - ✅ [Carga STG Bling Contatos] Extração concluída: 3470 registros brutos em 1424.13s
+2026-01-15 23:21:24,235 - INFO - [Carga STG Bling Contatos] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 23:21:24,236 - INFO - [Carga STG Bling Contatos] Normalizando dados...
+2026-01-15 23:21:24,419 - INFO - [Carga STG Bling Contatos] Após normalização: 3470 registros. Colunas: ['id', 'nome', 'codigo', 'situacao', 'numeroDocumento', 'telefone', 'celular', 'fantasia', 'tipo', 'indicadorIe', 'ie', 'rg', 'inscricaoMunicipal', 'orgaoEmissor', 'email', 'emailNotaFiscal', 'orgaoPublico', 'tiposContato', 'pessoasContato', 'endereco.geral.endereco', 'endereco.geral.cep', 'endereco.geral.bairro', 'endereco.geral.municipio', 'endereco.geral.uf', 'endereco.geral.numero', 'endereco.geral.complemento', 'endereco.cobranca.endereco', 'endereco.cobranca.cep', 'endereco.cobranca.bairro', 'endereco.cobranca.municipio', 'endereco.cobranca.uf', 'endereco.cobranca.numero', 'endereco.cobranca.complemento', 'vendedor.id', 'dadosAdicionais.dataNascimento', 'dadosAdicionais.sexo', 'dadosAdicionais.naturalidade', 'financeiro.limiteCredito', 'financeiro.condicaoPagamento', 'financeiro.categoria.id', 'pais.nome']
+2026-01-15 23:21:24,420 - INFO - 🔧 [Carga STG Bling Contatos] Preparando e mapeando dataframe...
+2026-01-15 23:21:24,506 - INFO - [Carga STG Bling Contatos] Após mapeamento: 3470 registros.
+2026-01-15 23:21:24,507 - INFO - 🧹 [Carga STG Bling Contatos] Removendo duplicatas pela chave ['CodigoContato']...
+2026-01-15 23:21:24,519 - INFO - [Carga STG Bling Contatos] Após deduplicação: 3470 registros.
+2026-01-15 23:21:24,519 - INFO - 🔎 [Carga STG Bling Contatos] Validando qualidade dos dados...
+2026-01-15 23:21:24,530 - INFO - ✅ [Carga STG Bling Contatos] Validação de dados concluída.
+2026-01-15 23:21:24,530 - INFO - [Carga STG Bling Contatos] Validação concluída com sucesso.
+2026-01-15 23:21:24,531 - INFO - [Carga STG Bling Contatos] Transformações finais concluídas. DataFrame pronto para carga com 3470 registros.
+2026-01-15 23:21:24,548 - INFO - 🚚 [Carga STG Bling Contatos] Carregando 3470 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_Contatos'...
+2026-01-15 23:21:24,570 - INFO -    -> [Carga STG Bling Contatos] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 23:21:25,387 - INFO - [Carga STG Bling Contatos] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 23:21:25,885 - INFO - 🎉 [Carga STG Bling Contatos] Carga concluída: 3468 inseridos, 2 atualizados.
+2026-01-15 23:21:25,886 - INFO - ⏱️  [Carga STG Bling Contatos] Tempo total do job: 1425.78s
+2026-01-15 23:21:25,890 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 23:21:25,893 - INFO - ▶️  [Carga STG Bling Contato Tipos Contato] Iniciando job...
+2026-01-15 23:21:25,894 - INFO - [Carga STG Bling Contato Tipos Contato] Iniciando processo de transformação...
+2026-01-15 23:21:25,894 - INFO - [Carga STG Bling Contato Tipos Contato] Extraindo dados brutos...
+2026-01-15 23:21:25,895 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 1, 'limite': 100}
+2026-01-15 23:21:26,314 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 100
+2026-01-15 23:21:26,315 - INFO - 📄 Página 2: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 2, 'limite': 100}
+2026-01-15 23:21:26,622 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 200
+2026-01-15 23:21:26,623 - INFO - 📄 Página 3: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 3, 'limite': 100}
+2026-01-15 23:21:26,950 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 300
+2026-01-15 23:21:26,951 - INFO - 📄 Página 4: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 4, 'limite': 100}
+2026-01-15 23:21:27,302 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 400
+2026-01-15 23:21:27,302 - INFO - 📄 Página 5: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 5, 'limite': 100}
+2026-01-15 23:21:27,632 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 500
+2026-01-15 23:21:27,633 - INFO - 📄 Página 6: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 6, 'limite': 100}
+2026-01-15 23:21:27,954 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 600
+2026-01-15 23:21:27,955 - INFO - 📄 Página 7: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 7, 'limite': 100}
+2026-01-15 23:21:28,303 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 700
+2026-01-15 23:21:28,304 - INFO - 📄 Página 8: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 8, 'limite': 100}
+2026-01-15 23:21:28,662 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 800
+2026-01-15 23:21:28,662 - INFO - 📄 Página 9: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 9, 'limite': 100}
+2026-01-15 23:21:28,969 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 900
+2026-01-15 23:21:28,970 - INFO - 📄 Página 10: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 10, 'limite': 100}
+2026-01-15 23:21:29,312 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1000
+2026-01-15 23:21:29,313 - INFO - 📄 Página 11: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 11, 'limite': 100}
+2026-01-15 23:21:29,664 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1100
+2026-01-15 23:21:29,665 - INFO - 📄 Página 12: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 12, 'limite': 100}
+2026-01-15 23:21:29,982 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1200
+2026-01-15 23:21:29,983 - INFO - 📄 Página 13: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 13, 'limite': 100}
+2026-01-15 23:21:30,323 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1300
+2026-01-15 23:21:30,323 - INFO - 📄 Página 14: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 14, 'limite': 100}
+2026-01-15 23:21:30,640 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1400
+2026-01-15 23:21:30,641 - INFO - 📄 Página 15: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 15, 'limite': 100}
+2026-01-15 23:21:30,973 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1500
+2026-01-15 23:21:30,974 - INFO - 📄 Página 16: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 16, 'limite': 100}
+2026-01-15 23:21:31,322 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1600
+2026-01-15 23:21:31,323 - INFO - 📄 Página 17: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 17, 'limite': 100}
+2026-01-15 23:21:31,654 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1700
+2026-01-15 23:21:31,655 - INFO - 📄 Página 18: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 18, 'limite': 100}
+2026-01-15 23:21:31,970 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1800
+2026-01-15 23:21:31,971 - INFO - 📄 Página 19: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 19, 'limite': 100}
+2026-01-15 23:21:32,313 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 1900
+2026-01-15 23:21:32,314 - INFO - 📄 Página 20: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 20, 'limite': 100}
+2026-01-15 23:21:32,642 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2000
+2026-01-15 23:21:32,643 - INFO - 📄 Página 21: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 21, 'limite': 100}
+2026-01-15 23:21:32,975 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2100
+2026-01-15 23:21:32,976 - INFO - 📄 Página 22: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 22, 'limite': 100}
+2026-01-15 23:21:33,314 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2200
+2026-01-15 23:21:33,315 - INFO - 📄 Página 23: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 23, 'limite': 100}
+2026-01-15 23:21:33,643 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2300
+2026-01-15 23:21:33,644 - INFO - 📄 Página 24: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 24, 'limite': 100}
+2026-01-15 23:21:33,974 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2400
+2026-01-15 23:21:33,975 - INFO - 📄 Página 25: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 25, 'limite': 100}
+2026-01-15 23:21:34,344 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2500
+2026-01-15 23:21:34,345 - INFO - 📄 Página 26: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 26, 'limite': 100}
+2026-01-15 23:21:34,642 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2600
+2026-01-15 23:21:34,643 - INFO - 📄 Página 27: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 27, 'limite': 100}
+2026-01-15 23:21:34,993 - INFO -    -> Recebidos: 100 registos | Total acumulado na passagem: 2700
+2026-01-15 23:21:34,994 - INFO - 📄 Página 28: GET https://api.bling.com.br/Api/v3/contatos | params={'pagina': 28, 'limite': 100}
+2026-01-15 23:21:35,301 - INFO -    -> Recebidos: 29 registos | Total acumulado na passagem: 2729
+2026-01-15 23:21:35,302 - INFO - ✅ Última página detetada (29 de 100 registos). Encerrando paginação.
+2026-01-15 23:21:35,305 - INFO - 🔎 Enriquecendo 2729 registos com estratégia 'sequential'...
+2026-01-15 23:21:55,049 - INFO -    ... 50/2729 detalhes buscados
+2026-01-15 23:22:15,519 - INFO -    ... 100/2729 detalhes buscados
+2026-01-15 23:22:35,541 - INFO -    ... 150/2729 detalhes buscados
+2026-01-15 23:22:56,520 - INFO -    ... 200/2729 detalhes buscados
+2026-01-15 23:23:16,774 - INFO -    ... 250/2729 detalhes buscados
+2026-01-15 23:23:36,881 - INFO -    ... 300/2729 detalhes buscados
+2026-01-15 23:23:57,021 - INFO -    ... 350/2729 detalhes buscados
+2026-01-15 23:24:17,271 - INFO -    ... 400/2729 detalhes buscados
+2026-01-15 23:24:37,360 - INFO -    ... 450/2729 detalhes buscados
+2026-01-15 23:24:57,389 - INFO -    ... 500/2729 detalhes buscados
+2026-01-15 23:25:17,579 - INFO -    ... 550/2729 detalhes buscados
+2026-01-15 23:25:37,621 - INFO -    ... 600/2729 detalhes buscados
+2026-01-15 23:25:57,668 - INFO -    ... 650/2729 detalhes buscados
+2026-01-15 23:26:17,854 - INFO -    ... 700/2729 detalhes buscados
+2026-01-15 23:26:38,032 - INFO -    ... 750/2729 detalhes buscados
+2026-01-15 23:26:58,043 - INFO -    ... 800/2729 detalhes buscados
+2026-01-15 23:27:18,110 - INFO -    ... 850/2729 detalhes buscados
+2026-01-15 23:27:38,185 - INFO -    ... 900/2729 detalhes buscados
+2026-01-15 23:27:58,190 - INFO -    ... 950/2729 detalhes buscados
+2026-01-15 23:28:18,440 - INFO -    ... 1000/2729 detalhes buscados
+2026-01-15 23:28:38,471 - INFO -    ... 1050/2729 detalhes buscados
+2026-01-15 23:28:58,490 - INFO -    ... 1100/2729 detalhes buscados
+2026-01-15 23:29:19,950 - INFO -    ... 1150/2729 detalhes buscados
+2026-01-15 23:29:39,962 - INFO -    ... 1200/2729 detalhes buscados
+2026-01-15 23:29:59,999 - INFO -    ... 1250/2729 detalhes buscados
+2026-01-15 23:30:20,039 - INFO -    ... 1300/2729 detalhes buscados
+2026-01-15 23:30:40,099 - INFO -    ... 1350/2729 detalhes buscados
+2026-01-15 23:31:00,149 - INFO -    ... 1400/2729 detalhes buscados
+2026-01-15 23:31:20,150 - INFO -    ... 1450/2729 detalhes buscados
+2026-01-15 23:31:40,380 - INFO -    ... 1500/2729 detalhes buscados
+2026-01-15 23:32:00,450 - INFO -    ... 1550/2729 detalhes buscados
+2026-01-15 23:32:20,489 - INFO -    ... 1600/2729 detalhes buscados
+2026-01-15 23:32:40,709 - INFO -    ... 1650/2729 detalhes buscados
+2026-01-15 23:33:00,731 - INFO -    ... 1700/2729 detalhes buscados
+2026-01-15 23:33:20,759 - INFO -    ... 1750/2729 detalhes buscados
+2026-01-15 23:33:40,817 - INFO -    ... 1800/2729 detalhes buscados
+2026-01-15 23:34:00,910 - INFO -    ... 1850/2729 detalhes buscados
+2026-01-15 23:34:20,870 - INFO -    ... 1900/2729 detalhes buscados
+2026-01-15 23:34:40,960 - INFO -    ... 1950/2729 detalhes buscados
+2026-01-15 23:35:01,240 - INFO -    ... 2000/2729 detalhes buscados
+2026-01-15 23:35:21,360 - INFO -    ... 2050/2729 detalhes buscados
+2026-01-15 23:35:41,380 - INFO -    ... 2100/2729 detalhes buscados
+2026-01-15 23:36:01,564 - INFO -    ... 2150/2729 detalhes buscados
+2026-01-15 23:36:21,560 - INFO -    ... 2200/2729 detalhes buscados
+2026-01-15 23:36:41,579 - INFO -    ... 2250/2729 detalhes buscados
+2026-01-15 23:37:01,619 - INFO -    ... 2300/2729 detalhes buscados
+2026-01-15 23:37:21,878 - INFO -    ... 2350/2729 detalhes buscados
+2026-01-15 23:37:41,851 - INFO -    ... 2400/2729 detalhes buscados
+2026-01-15 23:38:01,919 - INFO -    ... 2450/2729 detalhes buscados
+2026-01-15 23:38:22,018 - INFO -    ... 2500/2729 detalhes buscados
+2026-01-15 23:38:42,172 - INFO -    ... 2550/2729 detalhes buscados
+2026-01-15 23:39:02,192 - INFO -    ... 2600/2729 detalhes buscados
+2026-01-15 23:39:23,470 - INFO -    ... 2650/2729 detalhes buscados
+2026-01-15 23:39:43,510 - INFO -    ... 2700/2729 detalhes buscados
+2026-01-15 23:39:55,697 - INFO - ✅ [Carga STG Bling Contato Tipos Contato] Extração concluída: 2729 registros brutos em 1109.80s
+2026-01-15 23:39:55,698 - INFO - [Carga STG Bling Contato Tipos Contato] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 23:39:55,700 - INFO - [Carga STG Bling Contato Tipos Contato] Normalizando dados...
+2026-01-15 23:39:55,709 - INFO - [Carga STG Bling Contato Tipos Contato] Encontrados 2729/2729 registros com o record_path 'tiposContato'. Aplicando normalização...
+2026-01-15 23:39:55,757 - INFO - [Carga STG Bling Contato Tipos Contato] Após normalização: 840 registros. Colunas: ['id', 'descricao', 'contato_id']
+2026-01-15 23:39:55,758 - INFO - 🔧 [Carga STG Bling Contato Tipos Contato] Preparando e mapeando dataframe...
+2026-01-15 23:39:55,775 - INFO - [Carga STG Bling Contato Tipos Contato] Após mapeamento: 840 registros.
+2026-01-15 23:39:55,776 - INFO - 🧹 [Carga STG Bling Contato Tipos Contato] Removendo duplicatas pela chave ['CodContato', 'CodTipoContato']...
+2026-01-15 23:39:55,789 - INFO - [Carga STG Bling Contato Tipos Contato] Após deduplicação: 840 registros.
+2026-01-15 23:39:55,790 - INFO - 🔎 [Carga STG Bling Contato Tipos Contato] Validando qualidade dos dados...
+2026-01-15 23:39:55,802 - INFO - ✅ [Carga STG Bling Contato Tipos Contato] Validação de dados concluída.
+2026-01-15 23:39:55,802 - INFO - [Carga STG Bling Contato Tipos Contato] Validação concluída com sucesso.
+2026-01-15 23:39:55,803 - INFO - [Carga STG Bling Contato Tipos Contato] Transformações finais concluídas. DataFrame pronto para carga com 840 registros.
+2026-01-15 23:39:55,820 - INFO - 🚚 [Carga STG Bling Contato Tipos Contato] Carregando 840 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContatoTiposContato'...
+2026-01-15 23:39:55,825 - INFO -    -> [Carga STG Bling Contato Tipos Contato] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 23:39:55,945 - INFO - [Carga STG Bling Contato Tipos Contato] Executando MERGE via estratégia 'MySQLStrategy' (Modo: legacy).
+2026-01-15 23:39:55,986 - INFO - 🎉 [Carga STG Bling Contato Tipos Contato] Carga concluída: 2 inseridos, 1 atualizados.
+2026-01-15 23:39:55,986 - INFO - ⏱️  [Carga STG Bling Contato Tipos Contato] Tempo total do job: 1110.09s
+2026-01-15 23:39:55,988 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 23:39:55,989 - INFO - ▶️  [Carga STG Bling Tipo Contato] Iniciando job...
+2026-01-15 23:39:55,989 - INFO - [Carga STG Bling Tipo Contato] Iniciando processo de transformação...
+2026-01-15 23:39:55,990 - INFO - [Carga STG Bling Tipo Contato] Extraindo dados brutos...
+2026-01-15 23:39:55,990 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contatos/tipos | params={'pagina': 1, 'limite': 100}
+2026-01-15 23:39:56,342 - INFO -    -> Recebidos: 40 registos | Total acumulado na passagem: 40
+2026-01-15 23:39:56,343 - INFO - ✅ Última página detetada (40 de 100 registos). Encerrando paginação.
+2026-01-15 23:39:56,344 - INFO - ✅ [Carga STG Bling Tipo Contato] Extração concluída: 40 registros brutos em 0.35s
+2026-01-15 23:39:56,344 - INFO - [Carga STG Bling Tipo Contato] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 23:39:56,345 - INFO - [Carga STG Bling Tipo Contato] Normalizando dados...
+2026-01-15 23:39:56,346 - INFO - [Carga STG Bling Tipo Contato] Após normalização: 40 registros. Colunas: ['id', 'descricao']
+2026-01-15 23:39:56,347 - INFO - 🔧 [Carga STG Bling Tipo Contato] Preparando e mapeando dataframe...
+2026-01-15 23:39:56,352 - INFO - [Carga STG Bling Tipo Contato] Após mapeamento: 40 registros.
+2026-01-15 23:39:56,353 - INFO - 🧹 [Carga STG Bling Tipo Contato] Removendo duplicatas pela chave ['CodigoTipoContato']...
+2026-01-15 23:39:56,354 - INFO - [Carga STG Bling Tipo Contato] Após deduplicação: 40 registros.
+2026-01-15 23:39:56,355 - INFO - 🔎 [Carga STG Bling Tipo Contato] Validando qualidade dos dados...
+2026-01-15 23:39:56,359 - INFO - ✅ [Carga STG Bling Tipo Contato] Validação de dados concluída.
+2026-01-15 23:39:56,360 - INFO - [Carga STG Bling Tipo Contato] Validação concluída com sucesso.
+2026-01-15 23:39:56,360 - INFO - [Carga STG Bling Tipo Contato] Transformações finais concluídas. DataFrame pronto para carga com 40 registros.
+2026-01-15 23:39:56,361 - INFO - 🚚 [Carga STG Bling Tipo Contato] Carregando 40 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_ContatoTipo'...
+2026-01-15 23:39:56,362 - INFO -    -> [Carga STG Bling Tipo Contato] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 23:39:56,418 - INFO - [Carga STG Bling Tipo Contato] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 23:39:56,454 - INFO - 🎉 [Carga STG Bling Tipo Contato] Carga concluída: 40 inseridos, 0 atualizados.
+2026-01-15 23:39:56,455 - INFO - ⏱️  [Carga STG Bling Tipo Contato] Tempo total do job: 0.47s
+2026-01-15 23:39:56,456 - INFO - Configurando cliente OAuth2 para o APIAdapter...
+2026-01-15 23:39:56,456 - INFO - ▶️  [Carga STG Bling Contato Consumidor Final] Iniciando job...
+2026-01-15 23:39:56,457 - INFO - [Carga STG Bling Contato Consumidor Final] Iniciando processo de transformação...
+2026-01-15 23:39:56,457 - INFO - [Carga STG Bling Contato Consumidor Final] Extraindo dados brutos...
+2026-01-15 23:39:56,458 - INFO - 📄 Página 1: GET https://api.bling.com.br/Api/v3/contatos/consumidor-final | params={'criterio': 1}
+2026-01-15 23:39:56,860 - INFO -    -> Recebidos: 1 registos | Total acumulado na passagem: 1
+2026-01-15 23:39:56,860 - INFO - ✅ Última página detetada (1 de 100 registos). Encerrando paginação.
+2026-01-15 23:39:56,861 - INFO - ✅ [Carga STG Bling Contato Consumidor Final] Extração concluída: 1 registros brutos em 0.40s
+2026-01-15 23:39:56,861 - INFO - [Carga STG Bling Contato Consumidor Final] Normalizando dados brutos (provavelmente de API)...
+2026-01-15 23:39:56,863 - INFO - [Carga STG Bling Contato Consumidor Final] Normalizando dados...
+2026-01-15 23:39:56,869 - INFO - [Carga STG Bling Contato Consumidor Final] Após normalização: 1 registros. Colunas: ['id', 'nome', 'codigo', 'situacao', 'numeroDocumento', 'telefone', 'celular', 'fantasia', 'tipo', 'indicadorIe', 'ie', 'rg', 'inscricaoMunicipal', 'orgaoEmissor', 'email', 'emailNotaFiscal', 'orgaoPublico', 'tiposContato', 'pessoasContato', 'endereco.geral.endereco', 'endereco.geral.cep', 'endereco.geral.bairro', 'endereco.geral.municipio', 'endereco.geral.uf', 'endereco.geral.numero', 'endereco.geral.complemento', 'endereco.cobranca.endereco', 'endereco.cobranca.cep', 'endereco.cobranca.bairro', 'endereco.cobranca.municipio', 'endereco.cobranca.uf', 'endereco.cobranca.numero', 'endereco.cobranca.complemento', 'vendedor.id', 'dadosAdicionais.dataNascimento', 'dadosAdicionais.sexo', 'dadosAdicionais.naturalidade', 'financeiro.limiteCredito', 'financeiro.condicaoPagamento', 'financeiro.categoria.id', 'pais.nome']
+2026-01-15 23:39:56,870 - INFO - 🔧 [Carga STG Bling Contato Consumidor Final] Preparando e mapeando dataframe...
+2026-01-15 23:39:56,907 - INFO - [Carga STG Bling Contato Consumidor Final] Após mapeamento: 1 registros.
+2026-01-15 23:39:56,908 - INFO - 🧹 [Carga STG Bling Contato Consumidor Final] Removendo duplicatas pela chave ['CodigoContato']...
+2026-01-15 23:39:56,911 - INFO - [Carga STG Bling Contato Consumidor Final] Após deduplicação: 1 registros.
+2026-01-15 23:39:56,912 - INFO - 🔎 [Carga STG Bling Contato Consumidor Final] Validando qualidade dos dados...
+2026-01-15 23:39:56,919 - INFO - ✅ [Carga STG Bling Contato Consumidor Final] Validação de dados concluída.
+2026-01-15 23:39:56,920 - INFO - [Carga STG Bling Contato Consumidor Final] Validação concluída com sucesso.
+2026-01-15 23:39:56,921 - INFO - [Carga STG Bling Contato Consumidor Final] Transformações finais concluídas. DataFrame pronto para carga com 1 registros.
+2026-01-15 23:39:56,922 - INFO - 🚚 [Carga STG Bling Contato Consumidor Final] Carregando 1 linhas para 'LOJAJUNTOS_STG.tbSTG_BLING_Contatos'...
+2026-01-15 23:39:56,923 - INFO -    -> [Carga STG Bling Contato Consumidor Final] 🛡️  Sincronizando tipos do DataFrame com schema do banco...
+2026-01-15 23:39:57,120 - INFO - [Carga STG Bling Contato Consumidor Final] Executando MERGE via estratégia 'MySQLStrategy' (Modo: iodku).
+2026-01-15 23:39:57,193 - INFO - 🎉 [Carga STG Bling Contato Consumidor Final] Carga concluída: 1 inseridos, 0 atualizados.
+2026-01-15 23:39:57,194 - INFO - ⏱️  [Carga STG Bling Contato Consumidor Final] Tempo total do job: 0.74s
+2026-01-15 23:39:57,195 - INFO - Iniciando execução das procedures do DW...
+2026-01-15 23:39:57,196 - INFO -    -> Delegando execução da procedure 'spCarga_MainDW' para a estratégia.
+2026-01-15 23:40:03,451 - INFO -    -> ✅ spCarga_MainDW: 0 inseridos, 0 atualizadas.
+2026-01-15 23:40:03,452 - INFO - 
+==================================================
+2026-01-15 23:40:03,453 - INFO - 📊 RESUMO FINAL DA CARGA PARA O CLIENTE: LOJAJUNTOS
+2026-01-15 23:40:03,454 - INFO - ==================================================
+2026-01-15 23:40:03,455 - INFO - STG    - Total Inserido:   15200
+2026-01-15 23:40:03,455 - INFO - STG    - Total Atualizado: 53
+2026-01-15 23:40:03,455 - INFO - PROCS  - Total Inserido:   0
+2026-01-15 23:40:03,456 - INFO - PROCS  - Total Atualizado: 0
+2026-01-15 23:40:03,456 - INFO - ==================================================
+
+2026-01-15 23:40:03,457 - INFO - ================ FINALIZANDO PIPELINE PARA O TENANT: LOJAJUNTOS ================
+2026-01-15 23:40:03,458 - INFO - ✅ Sucesso em LOJAJUNTOS: 15253 linhas
+2026-01-15 23:40:03,459 - INFO - Enviando relatório detalhado para o Telegram...
+2026-01-15 23:40:03,459 - INFO - 📊 *RELATÓRIO DE CARGA: 15/01/2026*
+⏱️ Tempo Total: 1:07:10
+🏁 Sucessos: 1 | ❌ Falhas: 0
+📉 Linhas Totais: 15253
+
+━━━━━━━━━━━━━━━━
+✅ *LOJAJUNTOS*
+⏱️ Duração: `1:07:10`
+   ├─ `Carga Temporaria STG Bling File Contas Pagar e Receber`: 🟢+8190 | 🔵~0
+   ├─ `Carga STG Bling Contatos`: 🟢+3468 | 🔵~2
+   ├─ `Carga STG Bling Contas a Pagar 2026+`: 🟢+1154 | 🔵~19
+   ├─ `Carga STG Bling Contas a Pagar`: 🟢+1021 | 🔵~13
+   ├─ `Carga STG Bling Contas a Receber`: 🟢+714 | 🔵~14
+   ├─ `Carga STG Bling Contas a Receber 2026`: 🟢+365 | 🔵~4
+   ├─ `Carga STG Bling Categorias Financeiras`: 🟢+233 | 🔵~0
+   ├─ `Carga STG Bling Tipo Contato`: 🟢+40 | 🔵~0
+   ├─ `Carga STG Bling Contas Contabeis`: 🟢+12 | 🔵~0
+   ├─ `Carga STG Bling Contato Tipos Contato`: 🟢+2 | 🔵~1
+   ├─ `Carga STG Bling Contato Consumidor Final`: 🟢+1 | 🔵~0
+   ━━━━━━━━━━━━━━━━
+   ∑ *Total*: 🟢+15200 | 🔵~53
+2026-01-15 23:40:04,357 - INFO - 💤 Bateria Noturna Finalizada.
