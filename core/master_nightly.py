@@ -23,7 +23,7 @@ from core.alerts import send_telegram_text, observer
 from core.env import load_global_env
 
 # --- CONFIGURAÇÃO DE LOG ---
-log_dir = ROOT_DIR / "Nightly Logs"
+log_dir = ROOT_DIR / "nightly_logs"
 log_dir.mkdir(exist_ok=True)
 
 root_logger = logging.getLogger()
