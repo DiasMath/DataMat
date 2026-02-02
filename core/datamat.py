@@ -25,6 +25,7 @@ from core.errors.exceptions import (
     DataLoadError
 )
 from core.db_strategies import DbStrategy, MySQLStrategy
+from core.models import Job
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class DataMat:
         
         self.log.info(f"DataMat inicializado com a estratégia '{self.strategy.__class__.__name__}'.")
 
-    def run_etl_job(self, adapter: Any, job_config: Any, mapping_spec: Any) -> Tuple[str, int, int]:
+    def run_etl_job(self, adapter: Any, job_config: Job, mapping_spec: Any) -> Tuple[str, int, int]:
         """Executa o ciclo de vida completo de um job de ETL: E -> T -> L."""
         job_name = job_config.name
         self.log.info(f"▶️  [{job_name}] Iniciando job...")
@@ -93,7 +94,7 @@ class DataMat:
             self.log.error(f"❌ [{job_name}] Erro não esperado no job: {e}", exc_info=False)
             raise DataMatError(f"Job '{job_name}' falhou devido a um erro inesperado.") from e
 
-    def run_etl_job_extract_only(self, adapter: Any, job_config: Any, mapping_spec: Any) -> pd.DataFrame:
+    def run_etl_job_extract_only(self, adapter: Any, job_config: Job, mapping_spec: Any) -> pd.DataFrame:
         """Executa apenas as fases de extração e transformação, para preview ou export."""
         job_name = job_config.name
         self.log.info(f"▶️  [{job_name}] Iniciando job em modo 'extract-only'...")
@@ -134,7 +135,7 @@ class DataMat:
                 raise DataLoadError(f"Falha ao executar a procedure '{proc_name}'.") from e
             return 0, 0
         
-    def export_job_to_excel(self, adapter: Any, job_config: Any, mapping_spec: Any, tenant_id: str, root_dir: Path, limit: int) -> None:
+    def export_job_to_excel(self, adapter: Any, job_config: Job, mapping_spec: Any, tenant_id: str, root_dir: Path, limit: int) -> None:
         """Executa a extração de um job e exporta o resultado para Excel."""
         job_name = job_config.name
         self.log.info(f"Executando em modo EXPORT para o job '{job_name}'")
@@ -180,7 +181,7 @@ class DataMat:
 
     # --- MÉTODOS PRIVADOS DO FLUXO DE ETL ---
     
-    def _extract_and_transform(self, adapter: Any, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
+    def _extract_and_transform(self, adapter: Any, job_config: Job, mapping_spec: Any, job_name: str) -> pd.DataFrame:
         self.log.info(f"[{job_name}] Iniciando processo de transformação...")
 
         # 1. Extração
@@ -302,7 +303,7 @@ class DataMat:
         else:
             return pd.json_normalize(raw_data)
 
-    def _prepare_and_map(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> pd.DataFrame:
+    def _prepare_and_map(self, df: pd.DataFrame, job_config: Job, mapping_spec: Any, job_name: str) -> pd.DataFrame:
         if df.empty: 
             return df
         self.log.info(f"🔧 [{job_name}] Preparando e mapeando dataframe...")
@@ -375,7 +376,7 @@ class DataMat:
             
             return f"temp_{job_hash}_{unique_suffix}"
 
-    def _load(self, df: pd.DataFrame, job_config: Any, mapping_spec: Any, job_name: str) -> Tuple[int, int]:
+    def _load(self, df: pd.DataFrame, job_config: Job, mapping_spec: Any, job_name: str) -> Tuple[int, int]:
         if df.empty: 
             return 0, 0
         
@@ -495,7 +496,7 @@ class DataMat:
             self.log.warning(f"   -> [{job_name}] ⚠️  Falha na coerção de tipos (prossigo com tipos inferidos): {e}")
             return df
         
-    def _get_effective_keys(self, job_config: Any, mapping_spec: Any) -> List[str]:
+    def _get_effective_keys(self, job_config: Job, mapping_spec: Any) -> List[str]:
         keys = getattr(mapping_spec, "key_cols", [])
         return [keys] if isinstance(keys, str) else keys
     
