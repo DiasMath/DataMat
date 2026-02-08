@@ -101,7 +101,7 @@ def run_nightly_batch():
         try:
             # rows = total de linhas (int)
             # details = lista de tuplas [(job_name, inserted, updated), ...]
-            rows, details = run_tenant_pipeline(tenant_id)
+            rows, details, proc_names = run_tenant_pipeline(tenant_id)
             duration = format_duration(time.time() - tenant_start)
             
             if rows == -1:
@@ -122,7 +122,11 @@ def run_nightly_batch():
                 global_stats["success"] += 1
                 global_stats["total_rows"] += rows
                 log.info(f"✅ Sucesso em {tenant_id}: {rows} linhas")
-                
+
+                # Verifica se alguma procedure com "Main" no nome foi executada com sucesso
+                main_ran = any('Main' in name.lower() for name in proc_names)
+                dw_status = "✅ Sim" if main_ran else "⚠️ Não"
+
                 # Calcula totais do cliente
                 total_ins = 0
                 total_upd = 0
@@ -142,10 +146,12 @@ def run_nightly_batch():
                 # Se nenhum job teve dados, mostra msg padrão
                 if not jobs_str:
                     jobs_str = "   (Sem novos dados)\n"
-
+                    
+                # === MONTAGEM DO BLOCO ===
                 block = (
                     f"✅ *{tenant_id}*\n"
                     f"⏱️ Duração: `{duration}`\n"
+                    f"🏗️ Carga Main DW: {dw_status}\n"
                     f"{jobs_str}"
                     f"   ━━━━━━━━━━━━━━━━\n"
                     f"   ∑ *Total*: 🟢+{total_ins} | 🔵~{total_upd}"

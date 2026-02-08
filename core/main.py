@@ -131,13 +131,14 @@ def run_tenant_pipeline(
     limit: int = 0,
     workers_per_client: int = 2,
     procs_only: bool = False
-) -> Union[Tuple[int, List], Tuple[int, dict]]:
+) -> Union[Tuple[int, List, List[str]], Tuple[int, dict, List[str]]]:
     """
     Executa o pipeline para um tenant.
     """
     log.info(f"================ INICIANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
     stg_results = []
+    proc_results = []
     total_rows_pipeline = 0
 
     try:
@@ -145,7 +146,7 @@ def run_tenant_pipeline(
         if not load_tenant_env(tenant_id):
             msg = f"Configuração (.env) não encontrada ou inválida para '{tenant_id}'"
             observer.notify_failure(tenant_id, "Setup de Ambiente", Exception(msg))
-            return -1, {"error": msg}
+            return -1, {"error": msg}, []
 
         # 2. Importação Dinâmica
         try:
@@ -190,8 +191,8 @@ def run_tenant_pipeline(
                         today_wd = datetime.now().weekday()
                         if today_wd == job_spec.full_load_weekday:
                             log.info(f"📅 [{job_spec.name}] Hoje é dia de Carga Agendada (Dia {today_wd}).")
-                            log.info(f"   -> O cálculo incremental automático será IGNORADO.")
-                            log.info(f"   -> Serão usados os 'params' estáticos definidos no jobs.py.")
+                            log.info("   -> O cálculo incremental automático será IGNORADO.")
+                            log.info("   -> Serão usados os 'params' estáticos definidos no jobs.py.")
                             
                             # [IMPORTANTE] Removemos a linha: job_spec.truncate = True
                             # Agora o truncate só acontece se estiver explícito no jobs.py: Job(..., truncate=True)
@@ -273,17 +274,19 @@ def run_tenant_pipeline(
             log.info("Flag '--procs-only' ativa. Pulando a execução dos jobs de STG.")
 
         # 5. Execução de Procedures (DW)
-        proc_results = []
         if procs_only or not (job_names or preview or export):
             if PROCS:
                 log.info("Iniciando execução das procedures do DW...")
                 for group in PROCS:
                     for proc in group:
-                        proc_results.append(datamat.run_dw_procedure(proc))
+                        # Executa e verifica sucesso
+                        success = datamat.run_dw_procedure(proc)
+                        if success:
+                            proc_results.append(proc['name'])
             else:
                 log.info("Nenhuma procedure definida para execução.")
         else:
-            log.info("Procedures puladas (execução em modo filtrado/preview/export).")
+            log.info("Procedures puladas (modo filtrado/preview/export).")
         
         datamat.log_summary(tenant_id, stg_results, proc_results)
 
@@ -293,7 +296,7 @@ def run_tenant_pipeline(
     
     log.info(f"================ FINALIZANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
-    return total_rows_pipeline, stg_results
+    return total_rows_pipeline, stg_results, proc_results
 
 
 if __name__ == "__main__":

@@ -100,8 +100,8 @@ class DataMat:
         self.log.info(f"▶️  [{job_name}] Iniciando job em modo 'extract-only'...")
         return self._extract_and_transform(adapter, job_config, mapping_spec, job_name)
 
-    def run_dw_procedure(self, proc_config: Dict, resilient: bool = True) -> Tuple[int, int]:
-        """Executa uma procedure armazenada no banco de dados."""
+    def run_dw_procedure(self, proc_config: Dict, resilient: bool = True) -> bool:
+        """Executa uma procedure armazenada no banco de dados. Retorna True se sucesso."""
         proc_name = proc_config["name"]
         self.log.info(f"   -> Delegando execução da procedure '{proc_name}' para a estratégia.")
         
@@ -117,23 +117,24 @@ class DataMat:
                     "p_data_inicio": start_date.strftime("%Y-%m-%d"),
                     "p_data_fim": end_date.strftime("%Y-%m-%d")
                 }
-                log.info(f"   -> Carga incremental ativada para '{proc_name}'. Carregando {days} dias.")
+                self.log.info(f"   -> Carga incremental ativada para '{proc_name}'. Carregando {days} dias.")
 
             if params:
                 proc_config['params'] = params
 
             with self.engine.connect() as conn:
                 with conn.begin():
-                    inserted, updated = self.strategy.execute_procedure(conn, proc_config)
+                    self.strategy.execute_procedure(conn, proc_config)
             
-            self.log.info(f"   -> ✅ {proc_name}: {inserted} inseridos, {updated} atualizadas.")
-            return inserted, updated
+            self.log.info(f"   -> ✅ {proc_name}: Executada com sucesso.")
+            return True
+            
         except SQLAlchemyError as e:
             self.log.error(f"   -> ❌ FALHA na procedure: {proc_name} - {e}", exc_info=True)
             self.log_etl_error(process_name=proc_name, message=str(e))
             if not resilient:
                 raise DataLoadError(f"Falha ao executar a procedure '{proc_name}'.") from e
-            return 0, 0
+            return False
         
     def export_job_to_excel(self, adapter: Any, job_config: Job, mapping_spec: Any, tenant_id: str, root_dir: Path, limit: int) -> None:
         """Executa a extração de um job e exporta o resultado para Excel."""
@@ -166,17 +167,23 @@ class DataMat:
 
     @staticmethod
     def log_summary(client_id: str, stg_results: List[Tuple[str, int, int]], proc_results: List[Tuple[int, int]]) -> None:
+        """
+        Loga o resumo da execução no console/arquivo.
+        Adaptação: proc_results agora vem como (nome, inseridos, atualizados).
+        """
+
         stg_inserted = sum(i for _, i, _ in stg_results if i != -1)
         stg_updated = sum(u for _, _, u in stg_results if u != -1)
-        proc_inserted = sum(i for i, _ in proc_results)
-        proc_updated = sum(u for _, u in proc_results)
+
+        # Apenas contagem de quantas rodaram
+        total_procs = len(proc_results)
+
         log.info("\n" + "="*50)
         log.info(f"📊 RESUMO FINAL DA CARGA PARA O CLIENTE: {client_id}")
         log.info("="*50)
         log.info(f"STG    - Total Inserido:   {stg_inserted}")
         log.info(f"STG    - Total Atualizado: {stg_updated}")
-        log.info(f"PROCS  - Total Inserido:   {proc_inserted}")
-        log.info(f"PROCS  - Total Atualizado: {proc_updated}")
+        log.info(f"PROCS  - Total Executadas: {total_procs}")
         log.info("="*50 + "\n")
 
     # --- MÉTODOS PRIVADOS DO FLUXO DE ETL ---
