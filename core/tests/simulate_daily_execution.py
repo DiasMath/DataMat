@@ -1,4 +1,3 @@
-# core/tests/simulate_daily_execution.py
 from __future__ import annotations
 import sys
 import importlib

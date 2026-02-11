@@ -138,7 +138,7 @@ def run_tenant_pipeline(
     log.info(f"================ INICIANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
     stg_results = []
-    proc_results = []
+    executed_proc_names = []
     total_rows_pipeline = 0
 
     try:
@@ -278,25 +278,26 @@ def run_tenant_pipeline(
             if PROCS:
                 log.info("Iniciando execução das procedures do DW...")
                 for group in PROCS:
-                    for proc in group:
+                    for proc_config in group:
                         # Executa e verifica sucesso
-                        success = datamat.run_dw_procedure(proc)
+                        success = datamat.run_dw_procedure(proc_config)
                         if success:
-                            proc_results.append(proc['name'])
+                            executed_proc_names.append(proc_config['name']) # <--- ADICIONADO: Captura o nome
             else:
                 log.info("Nenhuma procedure definida para execução.")
         else:
-            log.info("Procedures puladas (modo filtrado/preview/export).")
+            log.info("Procedures não executadas devido aos parâmetros de execução (--jobs, --preview, --export).")
         
-        datamat.log_summary(tenant_id, stg_results, proc_results)
+        # Log local resumido (passando a lista de nomes agora)
+        datamat.log_summary(tenant_id, stg_results, executed_proc_names)
 
     except Exception as e:
         log.critical(f"Erro inesperado no pipeline do tenant '{tenant_id}': {e}", exc_info=True)
-        return -1, {"error": str(e), "traceback": traceback.format_exc()}
+        return -1, {"error": str(e), "traceback": traceback.format_exc()}, []
     
     log.info(f"================ FINALIZANDO PIPELINE PARA O TENANT: {tenant_id} ================")
     
-    return total_rows_pipeline, stg_results, proc_results
+    return total_rows_pipeline, stg_results, executed_proc_names
 
 
 if __name__ == "__main__":

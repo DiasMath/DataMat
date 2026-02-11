@@ -101,6 +101,7 @@ def run_nightly_batch():
         try:
             # rows = total de linhas (int)
             # details = lista de tuplas [(job_name, inserted, updated), ...]
+            # proc_names = lista de strings com os nomes das procedures executadas
             rows, details, proc_names = run_tenant_pipeline(tenant_id)
             duration = format_duration(time.time() - tenant_start)
             
@@ -123,11 +124,7 @@ def run_nightly_batch():
                 global_stats["total_rows"] += rows
                 log.info(f"✅ Sucesso em {tenant_id}: {rows} linhas")
 
-                # Verifica se alguma procedure com "Main" no nome foi executada com sucesso
-                main_ran = any('Main' in name.lower() for name in proc_names)
-                dw_status = "✅ Sim" if main_ran else "⚠️ Não"
-
-                # Calcula totais do cliente
+                # 1. TRATAMENTO DOS JOBS (STAGING) -- VEM PRIMEIRO
                 total_ins = 0
                 total_upd = 0
                 jobs_str = ""
@@ -146,15 +143,25 @@ def run_nightly_batch():
                 # Se nenhum job teve dados, mostra msg padrão
                 if not jobs_str:
                     jobs_str = "   (Sem novos dados)\n"
+
+                # 2. TRATAMENTO DAS PROCEDURES (DW)
+                procs_str = ""
+                if proc_names:
+                    for proc in proc_names:
+                        procs_str += f"   ⚙️ `{proc}`\n"
+                else:
+                    procs_str = "   ⚠️ _Nenhuma procedure executada_\n"
                     
                 # === MONTAGEM DO BLOCO ===
                 block = (
                     f"✅ *{tenant_id}*\n"
                     f"⏱️ Duração: `{duration}`\n"
-                    f"🏗️ Carga Main DW: {dw_status}\n"
+                    f"📂 *Carga Staging:*\n"
                     f"{jobs_str}"
                     f"   ━━━━━━━━━━━━━━━━\n"
-                    f"   ∑ *Total*: 🟢+{total_ins} | 🔵~{total_upd}"
+                    f"   ∑ *Total Staging*: 🟢+{total_ins} | 🔵~{total_upd}"
+                    f"🏗️ *Procedures (DW):*\n"
+                    f"{procs_str}"
                 )
                 report_blocks.append(block)
 

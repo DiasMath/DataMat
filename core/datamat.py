@@ -166,24 +166,42 @@ class DataMat:
             self.log.error(f"FALHA CRÍTICA: Não foi possível registrar o erro no banco. Causa: {e}")
 
     @staticmethod
-    def log_summary(client_id: str, stg_results: List[Tuple[str, int, int]], proc_results: List[Tuple[int, int]]) -> None:
+    def log_summary(client_id: str, stg_results: List[Tuple[str, int, int]], proc_names: List[str]) -> None:
         """
         Loga o resumo da execução no console/arquivo.
         Adaptação: proc_results agora vem como (nome, inseridos, atualizados).
         """
 
+        # Cálculos da Staging
+        # stg_results é [(job_name, inserted, updated), ...]
         stg_inserted = sum(i for _, i, _ in stg_results if i != -1)
         stg_updated = sum(u for _, _, u in stg_results if u != -1)
+        total_jobs_stg = len(stg_results)
 
-        # Apenas contagem de quantas rodaram
-        total_procs = len(proc_results)
+        # Contagem do DW
+        total_procs = len(proc_names)
 
         log.info("\n" + "="*50)
         log.info(f"📊 RESUMO FINAL DA CARGA PARA O CLIENTE: {client_id}")
         log.info("="*50)
-        log.info(f"STG    - Total Inserido:   {stg_inserted}")
-        log.info(f"STG    - Total Atualizado: {stg_updated}")
-        log.info(f"PROCS  - Total Executadas: {total_procs}")
+        
+        # 1. Exibe Resultados da STAGING (Primeiro)
+        log.info("🏗️  STAGING AREA")
+        log.info(f"   • Jobs Executados:  {total_jobs_stg}")
+        log.info(f"   • Linhas Inseridas: {stg_inserted}")
+        log.info(f"   • Linhas Atualizadas: {stg_updated}")
+        
+        log.info("-" * 50)
+
+        # 2. Exibe Resultados do DW (No final)
+        log.info("🏭 DATA WAREHOUSE")
+        if total_procs > 0:
+            log.info(f"   • Procedures Executadas ({total_procs}):")
+            for proc in proc_names:
+                log.info(f"     -> ✅ {proc}")
+        else:
+            log.info("   • Nenhuma procedure executada.")
+
         log.info("="*50 + "\n")
 
     # --- MÉTODOS PRIVADOS DO FLUXO DE ETL ---
