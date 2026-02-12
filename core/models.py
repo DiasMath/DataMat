@@ -21,7 +21,8 @@ class Job:
     # --- Parâmetros gerais ---
     params: Optional[Dict[str, Any]] = None
     param_matrix: Optional[Dict[str, List[Any]]] = None
-    incremental_config: Optional[Dict[str, Any]] = None  # Sobrepõe se colcoar data no param_matrix.
+    param_sequence: Optional[List[Dict[str, Any]]] = None
+    incremental_config: Optional[Dict[str, Any]] = None  # Sobrepõe se colocar data no param_matrix.
         # Exemplo: {
         #    "enabled": True, 
         #    "days_to_load": 7, 
@@ -30,6 +31,16 @@ class Job:
         #    "date_filter_field": "tipoFiltro",  # Opcional (solicitado)
         #    "date_filter_value": "V"            # Opcional (solicitado)
         # }
+    full_load_config: Optional[Dict[str, Any]] = None
+        # Exemplo: {
+        #     "weekday": 6, # 0=Seg, 6=Dom
+        #     "truncate": True,
+        #     "years": [2025, 2026],
+        #     "date_param_start": "dataEmissaoInicial",
+        #     "date_param_end": "dataEmissaoFinal",
+        #     "date_filter_param": "tipoData", # Opcional
+        #     "date_filter_value": "V"         # Opcional
+        # },
     merge_mode: str = "legacy"  # "legacy" (padrão, seguro) ou "iodku" (rápido, exige Unique Key)
 
     # --- Parâmetros Específicos por Tipo de Adapter ---
@@ -44,7 +55,7 @@ class Job:
     requests_per_minute: Optional[int] = 60  # Limite de requisições para a extração principal
     enrichment_requests_per_minute: Optional[int] = None # Limite para o enriquecimento (se None, usa o principal)
     delay_between_pages_ms: Optional[int] = None
-    max_passes: int = 1
+    max_passes: int = 1 # Desconfiar da API e refazer requisições 
     truncate: bool = False  # Flag manual caso você queira forçar na mão
     full_load_weekday: Optional[int] = None # Agendamento Automático (0=Seg, 6=Dom). Ex: 6 para rodar Full todo domingo.
     id_key: str = "id"  # Define o padrão como "id", mas permite mudar para "sku", "uuid", etc.

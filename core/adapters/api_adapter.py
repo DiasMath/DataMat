@@ -52,6 +52,7 @@ class APISourceAdapter:
         auth: Optional[Dict] = None,
         params: Optional[Dict] = None,
         param_matrix: Optional[Dict] = None,
+        param_sequence: Optional[List[Dict]] = None,
         enrich_by_id: bool = False,
         enrichment_strategy: str = 'concurrent',
         row_limit: Optional[int] = None,
@@ -66,6 +67,7 @@ class APISourceAdapter:
         self.paging = paging or {}
         self.base_params = params or {}
         self.param_matrix = param_matrix or {}
+        self.param_sequence = param_sequence or []
         self.enrich_by_id = enrich_by_id
         self.row_limit = row_limit
         self.data_path = data_path
@@ -146,25 +148,42 @@ class APISourceAdapter:
 
     def _execute_full_pass(self) -> List[Dict]:
         """
-        Executa uma passagem completa, iterando pela `param_matrix` se ela existir.
-        Retorna uma lista de todos os registros brutos encontrados na passagem.
+        Executa uma passagem completa.
+        Se houver param_sequence (ex: Anos) e param_matrix (ex: Situações),
+        ele cruza os dois, criando combinações perfeitas e paginando cada uma.
         """
+        # 1. Gera as combinações cruzadas da MATRIZ (Ex: Situação x Tipo)
         if self.param_matrix:
             keys, values = self.param_matrix.keys(), self.param_matrix.values()
-            param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
-            if len(param_combinations) > 1:
-                log.info(f"Executando {len(param_combinations)} combinações de parâmetros.")
+            matrix_combos = [dict(zip(keys, v)) for v in itertools.product(*values)]
         else:
-            param_combinations = [{}]
+            matrix_combos = [{}]
 
+        # 2. Pega a SEQUÊNCIA exata (Ex: Pares de data Inicial e Final)
+        sequence_combos = self.param_sequence if self.param_sequence else [{}]
+
+        # 3. MULTIPLICA a Sequência pela Matriz (Cross Join)
+        final_combinations = []
+        for seq in sequence_combos:
+            for mat in matrix_combos:
+                # Funde o par de datas (da sequência) com os filtros (da matriz)
+                combo = seq.copy()
+                combo.update(mat)
+                final_combinations.append(combo)
+
+        if len(final_combinations) > 1:
+            log.info(f"Executando {len(final_combinations)} combinações totais (Tempo x Filtros).")
+
+        # 4. Executa a paginação para CADA combinação final gerada
         all_rows_for_pass = []
-        for i, combo in enumerate(param_combinations):
+        for i, combo in enumerate(final_combinations):
             current_params = self.base_params.copy()
             current_params.update(combo)
 
-            if len(param_combinations) > 1:
-                log.info(f"--- Conjunto {i+1}/{len(param_combinations)}: {combo} ---")
+            if len(final_combinations) > 1:
+                log.info(f"--- Conjunto {i+1}/{len(final_combinations)}: {combo} ---")
             
+            # Pagina até esgotar os dados dessa combinação exata
             pass_rows = self._fetch_all_pages(params_override=current_params)
             all_rows_for_pass.extend(pass_rows)
         

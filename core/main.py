@@ -97,6 +97,7 @@ def get_job_adapter(job_spec: Any, limit: int = 0) -> Any:
             enrichment_requests_per_minute=getattr(job_spec, 'enrichment_requests_per_minute', None),
             params=getattr(job_spec, 'params', None),
             param_matrix=getattr(job_spec, 'param_matrix', None),
+            param_sequence=getattr(job_spec, 'param_sequence', None),
             delay_between_pages_ms=getattr(job_spec, 'delay_between_pages_ms', None),
             max_passes=getattr(job_spec, 'max_passes', 1),
             row_limit=limit if limit > 0 else getattr(job_spec, 'row_limit', None),
@@ -183,21 +184,55 @@ def run_tenant_pipeline(
                     is_full_load_mode = False
 
                     # --- A. VERIFICAÇÃO DE "DIA DE CARGA ESPECIAL" (Scheduled Mode) ---
-                    # Se hoje for o dia agendado (ex: Domingo), ativamos o modo "Full Load Mode".
-                    # O QUE MUDOU: Não forçamos mais truncate=True aqui. Respeitamos o que está no jobs.py.
-                    # Se job.truncate for False (padrão), faremos um MERGE/UPSERT da janela estática (ex: Ano Atual)
-                    # sem apagar o histórico antigo (ex: Anos Anteriores).
-                    if getattr(job_spec, 'full_load_weekday', None) is not None:
+                    full_config = getattr(job_spec, 'full_load_config', None)
+                    
+                    if full_config:
                         today_wd = datetime.now().weekday()
-                        if today_wd == job_spec.full_load_weekday:
-                            log.info(f"📅 [{job_spec.name}] Hoje é dia de Carga Agendada (Dia {today_wd}).")
+                        if today_wd == full_config.get('weekday', -1):
+                            log.info(f"📅 [{job_spec.name}] Hoje é dia de Carga Agendada/Full (Dia {today_wd}).")
                             log.info("   -> O cálculo incremental automático será IGNORADO.")
-                            log.info("   -> Serão usados os 'params' estáticos definidos no jobs.py.")
-                            
-                            # [IMPORTANTE] Removemos a linha: job_spec.truncate = True
-                            # Agora o truncate só acontece se estiver explícito no jobs.py: Job(..., truncate=True)
                             
                             is_full_load_mode = True
+
+                            # 1. Aplica a decisão de Truncate configurada no Job
+                            job_spec.truncate = full_config.get('truncate', False)
+                            if job_spec.truncate:
+                                log.info("   -> 🧨 Truncate ATIVADO. A tabela destino será limpa.")
+                            else:
+                                log.info("   -> ⚠️ Truncate DESATIVADO. Os dados serão sobrepostos/inseridos.")
+
+                            # 2. Desativa o incremental FORÇADAMENTE na origem do Job
+                            if hasattr(job_spec, 'incremental_config') and job_spec.incremental_config:
+                                job_spec.incremental_config['enabled'] = False
+                                log.info("   -> 🛑 Incremental desativado para priorizar a Carga Full.")
+
+                            # 3. Montagem dinâmica em SEQUÊNCIA (Anos)
+                            years = full_config.get('years', [])
+                            if years:
+                                param_start = full_config.get('date_param_start')
+                                param_end = full_config.get('date_param_end')
+                                
+                                if param_start and param_end:
+                                    if getattr(job_spec, 'param_sequence', None) is None:
+                                        job_spec.param_sequence = []
+                                        
+                                    # Cria um "Par de Datas" para cada ano exato e adiciona à sequência
+                                    for year in years:
+                                        combo = {
+                                            param_start: f"{year}-01-01",
+                                            param_end: f"{year}-12-31"
+                                        }
+                                        job_spec.param_sequence.append(combo)
+                                    
+                                    log.info(f"   -> 🔄 Sequência exata de anos montada para extração: {years}")
+                                
+                                # Injeta Filtro Extra de Data (ex: tipoData=V) diretamente nos params base
+                                date_filter_param = full_config.get('date_filter_param')
+                                date_filter_value = full_config.get('date_filter_value')
+                                if date_filter_param and date_filter_value:
+                                    if job_spec.params is None:
+                                        job_spec.params = {}
+                                    job_spec.params[date_filter_param] = date_filter_value
 
                     # --- B. LÓGICA DE CARGA INCREMENTAL (Dinâmica) ---
                     # Só roda se NÃO estivermos no modo Agendado/Full Load
@@ -236,7 +271,7 @@ def run_tenant_pipeline(
                             log.info(f"[{job_spec.name}] Carga incremental ativada: {start_date.strftime(date_format)}{log_msg_end}{log_msg_extra}")
 
                     elif is_full_load_mode:
-                        log.info(f"[{job_spec.name}] Executando em modo Agendado (Params Estáticos).")
+                        log.info(f"[{job_spec.name}] Configurações de tempo gerenciadas pelo Full Load.")
 
                     # --- C. EXECUÇÃO ---
                     effective_limit = limit if (preview or export) else 0
@@ -282,7 +317,7 @@ def run_tenant_pipeline(
                         # Executa e verifica sucesso
                         success = datamat.run_dw_procedure(proc_config)
                         if success:
-                            executed_proc_names.append(proc_config['name']) # <--- ADICIONADO: Captura o nome
+                            executed_proc_names.append(proc_config['name']) # Captura o nome
             else:
                 log.info("Nenhuma procedure definida para execução.")
         else:
